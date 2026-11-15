@@ -1,0 +1,27 @@
+# Root fallback for hosts that cannot point the document root at public/.
+#
+# If the whole project sits inside the web root (for example
+# public_html/timetable), these rules serve only the public/ folder and
+# refuse everything else (config, src, storage, bin, database, tests).
+# See docs/DEPLOYMENT.md, "Hosts that cannot change the document root".
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Already inside public/: let public/.htaccess handle it.
+    RewriteRule ^public/ - [L]
+
+    # Everything else is rewritten into public/.
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Without mod_rewrite, deny everything rather than expose source files.
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

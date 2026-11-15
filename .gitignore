@@ -1,0 +1,10 @@
+config/config.local.php
+storage/logs/*
+storage/exports/*
+storage/backups/*
+storage/cache/*
+storage/installed.lock
+!storage/*/.gitkeep
+/release/
+.idea/
+.vscode/
