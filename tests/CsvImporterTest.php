@@ -40,9 +40,9 @@ final class CsvImporterTest extends TestCase
 
     public function testAllOrNothingWithRowNumbers(): void
     {
-        $pdo = $this->migratedTestDb();
+        $pdo = $this->singleSchoolDb();
         $file = $this->csv("code,name,capacity,room_type\nLR1,Room 1,60,lecture\nLR2,Room 2,abc,lecture\nLAB1,Lab,40,kitchen\nLR1,Again,70,lecture\n");
-        $result = (new CsvImporter($pdo))->import('rooms', $file);
+        $result = (new CsvImporter($pdo, $this->school))->import('rooms', $file);
 
         $this->assertFalse($result['ok']);
         $this->assertCount(3, $result['errors'], 'Rows 3, 4 and 5 each have a problem: ' . json_encode($result['errors']));
@@ -56,8 +56,8 @@ final class CsvImporterTest extends TestCase
 
     public function testImportsAndUpsertsByNaturalKey(): void
     {
-        $pdo = $this->migratedTestDb();
-        $importer = new CsvImporter($pdo);
+        $pdo = $this->singleSchoolDb();
+        $importer = new CsvImporter($pdo, $this->school);
         $first = $importer->import('groups', $this->csv("code,name,size\n100L,Level 1,120\n200L,Level 2,110\n"));
         $this->assertTrue($first['ok']);
         $this->assertSame(2, $first['inserted']);
@@ -71,9 +71,9 @@ final class CsvImporterTest extends TestCase
 
     public function testCoursesResolveGroupAndLecturer(): void
     {
-        $pdo = $this->migratedTestDb();
+        $pdo = $this->singleSchoolDb();
         $pdo->exec("INSERT INTO semesters (id, session_label, semester_no, is_active) VALUES (1, '2025/2026', 1, 1)");
-        $importer = new CsvImporter($pdo);
+        $importer = new CsvImporter($pdo, $this->school);
         $importer->import('groups', $this->csv("code,name,size\n100L,Level 1,120\n"));
         $importer->import('lecturers', $this->csv("staff_no,title,full_name,short_name,email\nS1,Dr.,Ada Bello,A. Bello,\n"));
 
@@ -92,10 +92,10 @@ final class CsvImporterTest extends TestCase
 
     public function testAvailabilityMatchesPeriodByDayAndTime(): void
     {
-        $pdo = $this->migratedTestDb();
+        $pdo = $this->singleSchoolDb();
         $pdo->exec("INSERT INTO lecturers (id, staff_no, full_name, short_name) VALUES (1, 'S1', 'Ada', 'A')");
         $pdo->exec("INSERT INTO timeslots (id, day_of_week, period_no, start_time, end_time) VALUES (7, 1, 1, '08:00', '09:00')");
-        $importer = new CsvImporter($pdo);
+        $importer = new CsvImporter($pdo, $this->school);
         $bad = $importer->import('availability', $this->csv("staff_no,day,start_time,status\nS1,Mon,09:00,unavailable\nS1,Sun,08:00,busy\n"));
         $this->assertCount(2, $bad['errors']);
         $good = $importer->import('availability', $this->csv("staff_no,day,start_time,status\nS1,Monday,8:00,unavailable\n"));

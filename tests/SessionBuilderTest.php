@@ -33,7 +33,7 @@ final class SessionBuilderTest extends TestCase
 
     public function testGeneIndexIsContiguousAndOrderedByCourse(): void
     {
-        $pdo = $this->migratedTestDb();
+        $pdo = $this->singleSchoolDb();
         $pdo->exec("INSERT INTO semesters (id, session_label, semester_no, is_active) VALUES (1, '2025/2026', 1, 1)");
         $pdo->exec("INSERT INTO student_groups (id, code, name, size) VALUES (1, '100L', 'L1', 100)");
         $pdo->exec("INSERT INTO lecturers (id, staff_no, full_name, short_name) VALUES (1, 'S1', 'Ada', 'A')");
@@ -42,7 +42,7 @@ final class SessionBuilderTest extends TestCase
             (20, 1, 'B', 'B', 4, 1, 0, 1, 1),
             (10, 1, 'A', 'A', 3, 0, 1, 1, 1)");
 
-        $result = (new SessionBuilder($pdo))->build(1);
+        $result = (new SessionBuilder($pdo, $this->school))->build(1);
         $this->assertSame(4, $result['created']);
         $rows = $pdo->query('SELECT course_id, session_no, duration, gene_index FROM class_sessions ORDER BY gene_index')->fetchAll();
         $this->assertSame([0, 1, 2, 3], array_map('intval', array_column($rows, 'gene_index')));
@@ -50,7 +50,7 @@ final class SessionBuilderTest extends TestCase
         $this->assertSame([2, 1, 3, 1], array_map('intval', array_column($rows, 'duration')));
 
         // Rebuilding with no saved timetables deletes and recreates.
-        $again = (new SessionBuilder($pdo))->build(1);
+        $again = (new SessionBuilder($pdo, $this->school))->build(1);
         $this->assertSame(4, $again['deleted']);
         $this->assertSame(4, (int) $pdo->query('SELECT COUNT(*) FROM class_sessions')->fetchColumn());
         $this->dropAllTables($pdo);
@@ -58,18 +58,18 @@ final class SessionBuilderTest extends TestCase
 
     public function testRebuildArchivesSessionsUsedBySavedTimetables(): void
     {
-        $pdo = $this->migratedTestDb();
+        $pdo = $this->singleSchoolDb();
         $pdo->exec("INSERT INTO semesters (id, session_label, semester_no, is_active) VALUES (1, '2025/2026', 1, 1)");
         $pdo->exec("INSERT INTO student_groups (id, code, name, size) VALUES (1, '100L', 'L1', 100)");
         $pdo->exec("INSERT INTO lecturers (id, staff_no, full_name, short_name) VALUES (1, 'S1', 'Ada', 'A')");
         $pdo->exec("INSERT INTO rooms (id, code, name, capacity) VALUES (1, 'R1', 'R', 100)");
         $pdo->exec("INSERT INTO timeslots (id, day_of_week, period_no, start_time, end_time) VALUES (1, 1, 1, '08:00', '09:00')");
         $pdo->exec("INSERT INTO courses (id, semester_id, code, title, hours_per_week, group_id, lecturer_id) VALUES (1, 1, 'A', 'A', 2, 1, 1)");
-        (new SessionBuilder($pdo))->build(1);
+        (new SessionBuilder($pdo, $this->school))->build(1);
         $pdo->exec("INSERT INTO ga_jobs (id, semester_id, status) VALUES (1, 1, 'finished')");
         $pdo->exec('INSERT INTO timetable_entries (job_id, session_id, timeslot_id, room_id) SELECT 1, id, 1, 1 FROM class_sessions LIMIT 1');
 
-        $result = (new SessionBuilder($pdo))->build(1);
+        $result = (new SessionBuilder($pdo, $this->school))->build(1);
         $this->assertSame(2, $result['archived']);
         $this->assertSame(2, (int) $pdo->query('SELECT COUNT(*) FROM class_sessions WHERE archived = 0')->fetchColumn());
         $this->assertSame(2, (int) $pdo->query('SELECT COUNT(*) FROM class_sessions WHERE archived = 1')->fetchColumn());

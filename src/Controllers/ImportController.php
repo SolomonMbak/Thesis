@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\HttpException;
-use App\Data\SemesterRepository;
 use App\Services\CsvImporter;
 
 /**
@@ -14,7 +13,7 @@ use App\Services\CsvImporter;
 final class ImportController extends Controller
 {
     private const TYPES = [
-        'groups' => 'Student groups',
+        'groups' => 'Levels',
         'rooms' => 'Rooms',
         'lecturers' => 'Lecturers',
         'courses' => 'Courses (into the active semester)',
@@ -24,7 +23,7 @@ final class ImportController extends Controller
     public function index(array $result = [], string $type = ''): void
     {
         $this->render('import/index', [
-            'title' => 'Import CSV',
+            'title' => 'Import from spreadsheet',
             'types' => self::TYPES,
             'templates' => CsvImporter::TEMPLATES,
             'result' => $result,
@@ -46,8 +45,8 @@ final class ImportController extends Controller
             $this->index(['ok' => false, 'errors' => [$problem]], $type);
             return;
         }
-        $semester = (new SemesterRepository($this->app->db()))->active();
-        $result = (new CsvImporter($this->app->db()))->import($type, $file['tmp_name'], $semester ? (int) $semester['id'] : null);
+        $semester = $this->activeSemester();
+        $result = (new CsvImporter($this->app->db(), $this->school()))->import($type, $file['tmp_name'], $semester ? (int) $semester['id'] : null);
         if (!$result['ok']) {
             http_response_code(422);
             $this->index($result, $type);
@@ -57,7 +56,7 @@ final class ImportController extends Controller
             'inserted' => $result['inserted'], 'updated' => $result['updated']]);
         $message = self::TYPES[$type] . " imported: {$result['inserted']} added, {$result['updated']} updated.";
         if ($type === 'courses') {
-            $message .= ' Build sessions again before generating.';
+            $message .= ' Class sessions are updated automatically when you open Check readiness.';
         }
         $this->app->flash->success($message);
         $this->redirect('import');

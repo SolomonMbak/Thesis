@@ -28,7 +28,9 @@ Contents
 
 ## 1. Scope
 
-- One academic department, all undergraduate levels (100L to 400L), one semester at a time. Multiple semesters can be stored; one is active.
+- **Multi-school platform (multi-tenant).** Anyone can sign up as the owner of a school (or a department, college or polytechnic) and get their own complete, isolated workspace. Every school sees only its own data, users, runs and timetables. One deployment serves many schools.
+- Inside a school workspace: rooms are shared across the school; student groups can belong to different departments (each group has an optional department label, for example "Computer Science 300L"). The dissertation evaluation still uses one case study department, created as one school workspace.
+- Each school stores multiple semesters; one is active per school.
 - Week: Monday to Friday, 08:00 to 18:00, one-hour periods (10 per day, 50 per week). Day start, day end and period length are settings, but the engine must work for any period grid generated from them.
 - Friday 12:00 to 14:00 blocked for Jumu'ah by default. Any period can be blocked.
 - Course allocation (which lecturer teaches which course) is an input.
@@ -36,11 +38,27 @@ Contents
 
 ## 2. Users and roles
 
+Two levels of roles.
+
+Platform level:
+
 | Role | Access |
 | --- | --- |
-| admin | Everything, including users, settings, backups, health page |
+| platform_admin | Manages the whole installation: list of schools, suspend or reactivate a school, platform settings (SMTP, sign-up open or closed, job concurrency), health page, backups. Cannot see inside a school's data unless they are also a member of it. Created by the installer. |
+
+School level (a user can belong to more than one school and switch between them):
+
+| Role | Access |
+| --- | --- |
+| owner | Everything in the school, including deleting the school, transferring ownership, inviting and removing members |
+| admin | Everything except deleting the school and transferring ownership |
 | officer | Data management, feasibility, generate, reports, publish |
-| public (no login) | Read-only published timetables by level, lecturer or room |
+| viewer | Read-only access to all timetables and reports (useful for HODs, deans) |
+| public (no login) | Published timetables of a school via its public link `/s/{school-slug}` |
+
+Sign-up flow: visitor clicks "Create a school account", enters their name, email, password and school name; the system creates the user, the school (with a unique slug), the owner membership, default settings, the 50 default periods and one active semester; sends a verification email; then opens the Setup Guide (section 10.2). Unverified owners can use the app for 7 days, then must verify to continue. Platform admin can turn public sign-up off (invite-only).
+
+Invitations: owner or admin enters an email and a role; the invitee gets a link valid for 7 days; if they have no account they set a password on acceptance.
 
 ## 3. Folder layout
 
@@ -78,6 +96,91 @@ Front controller routing: `index.php?r=courses/edit&id=4` style is acceptable; p
 ## 4. Database [3.6.1, 3.6.2, 3.6.7]
 
 Migration `database/migrations/001_init.sql` contains the schema below. `bin/migrate.php` records applied files in `schema_migrations`. The installer runs the same migrations.
+
+### 4.1 Multi-tenant model
+
+Shared database, shared tables, with a `school_id` column on every tenant-owned table. This is simpler to deploy and back up than one database per school and works on shared hosting. Isolation rules are in section 13.1.
+
+Tenant-owned tables (must have `school_id`, indexed, with a foreign key to `schools`): semesters, lecturers, student_groups, rooms, timeslots, courses, class_sessions (through course, but store school_id too for fast scoping), lecturer_availability (through lecturer; store school_id too), constraint_weights, school_settings, feasibility_checks, ga_jobs, ga_progress (through job; store school_id too), timetable_entries (store school_id too), audit_log (nullable for platform events).
+
+Natural-key unique constraints become per school, for example `UNIQUE (school_id, staff_no)`, `UNIQUE (school_id, code)` for rooms and groups, `UNIQUE (school_id, semester_id, code)` for courses, `UNIQUE (school_id, day_of_week, period_no)` for timeslots, `PRIMARY KEY (school_id, code)` for constraint_weights.
+
+New tables (add to 001_init.sql if no migration has been applied in production yet; otherwise add as 002_multitenancy.sql with a data migration that creates one school for existing rows):
+
+```sql
+CREATE TABLE schools (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  slug VARCHAR(60) NOT NULL UNIQUE,         -- used in public link /s/{slug}
+  school_type ENUM('university','polytechnic','college','secondary','other') NOT NULL DEFAULT 'university',
+  department_label VARCHAR(150) NULL,        -- e.g. "Department of Computer Science" if the workspace is one department
+  country VARCHAR(60) NOT NULL DEFAULT 'Nigeria',
+  timezone VARCHAR(40) NOT NULL DEFAULT 'Africa/Lagos',
+  logo_path VARCHAR(255) NULL,               -- stored in storage/uploads, served through a PHP route
+  status ENUM('active','suspended') NOT NULL DEFAULT 'active',
+  setup_completed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE school_members (
+  school_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  role ENUM('owner','admin','officer','viewer') NOT NULL,
+  joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (school_id, user_id),
+  CONSTRAINT fk_sm_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE invitations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  school_id INT UNSIGNED NOT NULL,
+  email VARCHAR(120) NOT NULL,
+  role ENUM('admin','officer','viewer') NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,       -- sha256 of the token; raw token only in the email
+  invited_by INT UNSIGNED NOT NULL,
+  expires_at DATETIME NOT NULL,
+  accepted_at DATETIME NULL,
+  CONSTRAINT fk_inv_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE user_tokens (                   -- email verification and password reset
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  purpose ENUM('verify_email','reset_password') NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  CONSTRAINT fk_ut_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE school_settings (               -- replaces per-school keys formerly in settings
+  school_id INT UNSIGNED NOT NULL,
+  name VARCHAR(60) NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (school_id, name),
+  CONSTRAINT fk_ss_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE help_progress (                 -- which setup steps and tips a user has seen or dismissed
+  user_id INT UNSIGNED NOT NULL,
+  school_id INT UNSIGNED NOT NULL,
+  item VARCHAR(60) NOT NULL,                 -- e.g. tour_done, tip_courses_dismissed
+  done_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, school_id, item)
+) ENGINE=InnoDB;
+```
+
+Changes to existing tables:
+
+- `users`: remove `role` (roles now live in `school_members`); add `is_platform_admin TINYINT(1) NOT NULL DEFAULT 0`, `email_verified_at DATETIME NULL`, `theme ENUM('system','light','dark') NOT NULL DEFAULT 'system'`, `last_school_id INT UNSIGNED NULL`.
+- `settings` stays for platform-wide keys only (smtp_*, signup_open, max_concurrent_jobs, launch_mode, php_cli_path, worker_heartbeat). Per-school keys (day_start, day_end, period_minutes, default GA params, institution display names) move to `school_settings`.
+- `student_groups`: add `department VARCHAR(100) NULL`.
+- Add `school_id` to every tenant-owned table listed above.
+
+### 4.2 Base schema
+
+The tables below are the original single-school definitions. Apply the 4.1 changes on top of them.
 
 ```sql
 CREATE TABLE schema_migrations (
@@ -454,12 +557,65 @@ Single `Rng` instance passed everywhere. If the user leaves the seed blank, gene
   - Auto-detect on the health page whether exec is available and recommend a mode.
 - `bin/run_ga.php <id>`: `set_time_limit(0)`, memory limit from settings (default 512M), atomically claim the job (`UPDATE ... SET status='running', started_at=NOW(), worker_pid=? WHERE id=? AND status='queued'`; exit if 0 rows), load ProblemData, snapshot weights, run, write progress rows, check `stop_requested`, write `timetable_entries` and summary in one transaction, set `finished` or `stopped`. On exception: `failed` with message in `notes`, full trace in the job log.
 - `bin/worker.php`: loop (or `--once`): write `settings.worker_heartbeat`, claim oldest queued job, run it in-process, repeat. Sleep 5 s when idle. `--max-jobs=N` for cron safety. Use a lock file in `storage/cache/worker.lock` (flock) so two cron workers never overlap.
+- Multi-school fairness: one running or queued job per school at a time. Platform setting `max_concurrent_jobs` (default 1 on shared hosting, 2 on a 2-vCPU VPS) caps jobs running across all schools. The worker claims the oldest queued job; a school's position in the queue is shown on its live page ("Your run is number 2 in the queue"). Every query in run_ga.php is scoped by the job's school_id.
 - Stale job recovery: on dashboard load and worker start, any `running` job whose latest progress row (or started_at) is older than 10 minutes becomes `failed` with note "worker stopped unexpectedly".
 - Progress API `api/progress.php?job=ID&after=G`: JSON `{status, generation, best_penalty, hard, soft, elapsed_ms, points:[{g, p, h}]}` with rows after G only. Requires login.
 
 ## 10. Pages and user experience [3.5]
 
-Layout: top bar (institution, department, active semester switcher, user menu), left menu on desktop, collapsible on mobile. Clean, accessible (labels on all inputs, keyboard usable, contrast AA), responsive. One CSS file with CSS variables; light theme, print stylesheet.
+The app must be usable by a timetable officer who has never seen it and has no one to ask. Every page must answer three questions without the user leaving it: What is this page for? What do I do here? Where do I go next?
+
+### 10.1 Layout and navigation
+
+- Top bar: school switcher (name and logo; lists every school the user belongs to, plus "Create another school"), active semester switcher, Help button (opens the help panel for the current page), theme toggle (section 10.5), user menu (profile, change password, log out).
+- Sidebar with **four collapsible groups**. Each group header shows an icon, a label and a chevron; clicking toggles it. Open/closed state is saved per user in localStorage. On load, only the group containing the current page is open (others collapsed) unless the user has opened them. The sidebar itself can collapse to an icon-only rail (tooltip labels on hover) with a toggle at its bottom; on mobile it is an off-canvas drawer.
+
+| Group | Items |
+| --- | --- |
+| **Get started** | Setup Guide (with a progress ring, e.g. "5 of 9"), Dashboard |
+| **School data** | School profile and periods, Rooms, Levels (student groups), Lecturers, Courses, Lecturer availability, Import from spreadsheet |
+| **Timetables** | Check readiness (feasibility), Generate timetable, Runs and results, Published timetable and share link |
+| **Manage** | Members and invitations, Rules and weights, Semesters, Activity log, School settings |
+
+Platform admins see an extra **Platform** group: Schools, Platform settings, Health, Backups.
+
+- Breadcrumbs under the top bar on every page.
+- Every list page has a clear primary action button (top right), for example "Add room", and an empty state with a one-line explanation, the primary action, and a secondary "Import from spreadsheet" link where relevant.
+
+### 10.2 Setup Guide (the first-run flow)
+
+After sign-up the owner lands on the Setup Guide. It is also always reachable from the sidebar and from a banner on the Dashboard until setup is complete. It is a vertical checklist of numbered steps. Each step shows: number, title, one-sentence explanation of why it matters, status (Done, To do, Optional, Locked), a count where useful ("8 rooms added"), and a button that opens the right page. A step is "Done" when its completion rule is met (computed live from the data, not by clicking a checkbox). Locked steps explain what must be done first.
+
+| Step | Title | Why (shown to the user) | Done when | Unlocked when |
+| --- | --- | --- | --- | --- |
+| 1 | School profile and teaching week | Sets your days, hours and blocked periods (e.g. Friday prayers) | Profile saved once and at least 1 open period exists | Always |
+| 2 | Add rooms | The timetable can only use rooms you list | At least 1 active room | Step 1 |
+| 3 | Add levels | Each level must never have two classes at once | At least 1 level | Step 1 |
+| 4 | Add lecturers | Each lecturer must never be in two places at once | At least 1 lecturer | Step 1 |
+| 5 | Add courses | Links each course to a level, a lecturer and weekly hours | At least 1 course in the active semester | Steps 3 and 4 |
+| 6 | Set lecturer availability (optional but recommended) | Keeps classes out of times lecturers cannot teach and favours their preferred times | At least half the lecturers have any non-default availability, or the user clicks "Skip for now" | Step 4 |
+| 7 | Check readiness | Finds problems that make a clash-free timetable impossible, before you wait for a run | Latest feasibility check for the active semester passed and no data changed since | Steps 2 and 5 |
+| 8 | Generate your timetable | Runs the search for the best clash-free timetable | At least one finished run with zero hard violations | Step 7 |
+| 9 | Review and publish | Lets lecturers and students see the final timetable | One run published | Step 8 |
+
+When all required steps are done, show a short success message with the public link and set `schools.setup_completed_at`. The guide stays available for reference.
+
+"Next step" banner: on every page belonging to a setup step, while setup is incomplete, show a slim banner at the bottom of the content: "Step 3 of 9 done. Next: Add lecturers." with a button. It disappears once setup is complete.
+
+Build sessions is automatic: when the user opens Check readiness or Generate and courses changed since the last build, the app rebuilds sessions first and tells the user ("Updated 124 class sessions from your courses"). The user never has to know "build sessions" exists as a separate action.
+
+### 10.3 In-app help (documentation inside the app)
+
+1. **Page help panel.** Every page has a "?" Help button that opens a side panel with: what this page is for (2 to 3 sentences), step-by-step how to use it, what each field means, common mistakes, and a "Next" link. Content lives in `views/help/{page}.php` (plain HTML), so it can be edited without touching logic. Write real content for every page; no placeholders.
+2. **Field hints.** Every form field that is not obvious has a short hint under it (e.g. Capacity: "Maximum students the room can seat. Rooms smaller than a level are never given to that level.").
+3. **Info tooltips** on technical words wherever they appear: hard rule, soft rule, penalty, fitness, generation, repair, feasibility, seed. Tooltip text is one sentence of plain English.
+4. **First-visit tips.** The first time a user opens a page, show a dismissible tip card at the top with the page's purpose and the main action. Dismissal is saved in `help_progress`.
+5. **Product tour.** A short, skippable 5-stop tour after sign-up (sidebar groups, Setup Guide, Help button, theme toggle, school switcher), built with plain JS and a positioned popover. Can be restarted from the user menu.
+6. **Help Centre** page (`/help`) reachable from the top bar and footer: Getting started (the 9 steps explained), Preparing your data (with CSV templates), Understanding results (hard vs soft rules, what the score means, why a run may not reach zero clashes and what to do), Publishing and sharing, Inviting your team, FAQ, Glossary. Searchable on the client side.
+7. **Plain-language results.** The results page leads with a verdict, not numbers: "No clashes. 12 small preference issues." or "3 clashes remain. Here is what is causing them." with links to the affected lecturer, room or level. Numbers and charts come below.
+8. **Errors say what to do.** Every validation or failure message names the problem and the fix, for example "Room LT2 seats 80 but 300L has 90 students. Use a bigger room or set a smaller class size on the course."
+
+### 10.4 Pages
 
 | Area | Pages and features |
 | --- | --- |
@@ -470,11 +626,45 @@ Layout: top bar (institution, department, active semester switcher, user menu), 
 | 4. Generate | Form with defaults, repair toggle, seed, label; Start; live page: status, generation, elapsed time, best penalty, V_H, soft, progress bar (generation / Tmax), Chart.js chart (best penalty log scale, V_H second axis), Stop button; on finish link to results |
 | 5. Timetables and reports | Job list (filter by type, status, label); job detail with settings and scores; grids by level, lecturer, room (rowspan for multi-hour sessions, blocked shaded, clash cells red with tooltip); quality report (H1 to H6, S1 to S5 counts and weighted totals, list of every soft violation with where it occurs); compare jobs side by side; publish; export CSV; print view (one level per page) |
 | 6. Administration | Users (create, deactivate, reset password), semesters (create, set active, copy master data from previous semester), audit log viewer, backups (create, download, list), health page, delete old jobs |
-| Public | `/?r=public/timetable&view=level&id=3`, published job only, mobile friendly, print button |
+| Public | `/s/{slug}` school page listing levels, lecturers and rooms; `/s/{slug}/level/{id}`, `/lecturer/{id}`, `/room/{id}`; published job only, mobile friendly, print button, theme toggle, school name and logo. Suspended schools show a neutral "not available" page |
 
 Grid cell content: course code, lecturer short name, room code. Rows are periods, columns are days.
 
 Empty states and errors: every list has a helpful empty state; every failure shows what to do next.
+
+Area names in the table above map to the sidebar groups in 10.1: menu area 1 is "School data", areas 3 to 5 are "Timetables", areas 2 and 6 are "Manage" (platform items move to the Platform group).
+
+### 10.5 Dark mode
+
+- Three options: System (follows the device), Light, Dark. Toggle in the top bar of the app and on every public timetable page, so students can choose too.
+- Logged-in users: choice saved to `users.theme` and mirrored in localStorage. Public visitors: saved in localStorage only.
+- No flash of the wrong theme: a tiny inline script in `<head>` reads localStorage (or `prefers-color-scheme` for System) and sets `data-theme` on `<html>` before CSS paints.
+- All colours are CSS variables defined for `[data-theme="light"]` and `[data-theme="dark"]`. No hard-coded colours anywhere else in CSS or inline styles.
+- Both themes must meet WCAG AA contrast for text, including timetable cells, badges, clash highlighting (red must stay readable on dark) and blocked-period shading.
+- Chart.js colours read from the CSS variables and the chart redraws when the theme changes.
+- Print always uses the light theme.
+
+### 10.6 Visual design
+
+Calm, professional, uncluttered. One accent colour, generous spacing, readable 15 to 16px base text, clear focus outlines, icons (inline SVG, no icon font CDN) next to sidebar items. Status shown with colour plus text, never colour alone. Tables become stacked cards on narrow screens. The timetable grid scrolls horizontally on phones with the period column sticky.
+
+### 10.7 Monthly calendar view
+
+The genetic algorithm builds one week that repeats all semester; that does not change. The month view lays that week onto the real
+dates of a month (added 2026-11-16 at the developer's request).
+
+- Each semester has an optional first and last day of teaching (`semesters.start_date`, `semesters.end_date`) and a list of days
+  without teaching, such as public holidays and breaks (table `school_closures`: `school_id`, `semester_id`, `closed_on`, `reason`,
+  unique per school, semester and date). Edited by owners and administrators under Manage, Semesters, Dates and holidays; a range of
+  dates adds every weekday in it.
+- Every timetable grid (app and public page) has a **Week / Month** switch. The month view shows Monday to Friday of each week of
+  the month: each day lists that weekday's classes with start and end time; days without teaching show "No classes" and the
+  reason; days before or after the semester are shaded; days of other months are greyed. Previous and next month links. Without
+  semester dates, every weekday shows the weekly timetable and a note explains how to add the dates. On phones the month becomes a
+  list of days.
+- **Export with dates (CSV)**: every class on its real date across the semester, holidays left out:
+  `date, day, start_time, end_time, course_code, course_title, level, lecturer, room`.
+- Holidays never move classes and are not seen by the engine or the feasibility check.
 
 ## 11. CSV import and manual timetable scoring
 
@@ -495,6 +685,14 @@ Manual timetable: creates a `ga_jobs` row with `job_type = 'manual'` and entries
 
 Paste each prompt into Claude Code. Do not start the next increment until checks pass and tests are green.
 
+Multi-school, onboarding, help and dark mode (sections 2, 4.1, 10, 13.1) apply to every increment. If code already exists from an earlier version of this spec, run the Retrofit increment below first.
+
+### Retrofit increment (only if code was built before multi-school support)
+
+Prompt: "BUILD_SPEC.md has changed. Read sections 1, 2, 4.1, 9, 10 and 13.1 again. First, list every file that must change and every place where a query is not scoped by school, and show me the plan before editing. Then: (1) add multi-tenancy per 4.1 with a migration that moves all existing data into one school owned by the existing admin; (2) introduce SchoolContext and make every repository require it; (3) add sign-up, email verification, password reset, invitations, school switcher, member management and the platform admin area; (4) rebuild the sidebar as four collapsible groups per 10.1; (5) build the Setup Guide, next-step banner, automatic session building, page help panels with real content for every page, field hints, tooltips, first-visit tips, product tour and Help Centre per 10.2 and 10.3; (6) add dark mode per 10.5 across the app and public pages; (7) move public pages to /s/{slug}. Write TenantIsolationTest and make all existing tests pass with school scoping."
+
+Checks: two schools created by sign-up cannot see each other's data in any page, API, export or public link (TenantIsolationTest green); a new owner can go from sign-up to a published timetable using only the Setup Guide and help panels; sidebar groups collapse and remember state; theme toggle works with no flash on reload, on app and public pages.
+
 ### Increment 0: Foundation
 
 Prompt: "Read CLAUDE.md and BUILD_SPEC.md. Build the foundation: folder layout (section 3), autoloader, Config (config.php defaults + config.local.php), Db (PDO, exceptions, no emulated prepares, utf8mb4), Router, View with layout and e(), Session (secure cookie flags, regenerate on login, idle timeout 60 min), Csrf, Auth with roles, RateLimiter for login (5 failures per 15 min per email and per IP), Logger to storage/logs, Audit helper, Flash messages, security headers, migrations runner and 001_init.sql, bin/create_admin.php, public/.htaccess and root .htaccess, tests/run.php mini runner, README.md skeleton."
@@ -505,7 +703,7 @@ Checks: login works, wrong password 5 times locks out, dashboard renders, `php t
 
 ### Increment 1: Installer and settings
 
-Prompt: "Build public/install.php: checks PHP version >= 8.2 and extensions (pdo_mysql, mbstring, json, fileinfo), writable storage/ and config/, takes DB details, tests the connection, writes config/config.local.php, runs migrations, creates the admin, saves institution and department names, generates the 50 periods, then writes storage/installed.lock and refuses to run again. Build the settings pages in menu area 2 and the semester management in area 6."
+Prompt: "Build public/install.php: checks PHP version >= 8.2 and extensions (pdo_mysql, mbstring, json, fileinfo), writable storage/ and config/, takes DB details, tests the connection, writes config/config.local.php, runs migrations, creates the platform admin account, optionally creates a first school with that user as owner (default periods, weights, settings and an active semester), then writes storage/installed.lock and refuses to run again. Build the settings pages in menu area 2 and the semester management in area 6."
 
 Checks: fresh install on an empty database works end to end; installer cannot be reopened after install.
 
@@ -513,7 +711,7 @@ Checks: fresh install on an empty database works end to end; installer cannot be
 
 Prompt: "Build menu area 1 and the feasibility page (sections 5, 7, 10, 11) and bin/seed.php demo data (below). Include CSV import with templates and the availability grid."
 
-Demo data (seeded RNG, same every time): groups 100L (120), 200L (110), 300L (90), 400L (80); 6 lecture rooms (60, 80, 100, 120, 150, 200); 2 labs (60, 60) with practical courses using class_size_override = 60; 14 lecturers, each unavailable 3 to 8 periods and preferring 4 to 6; about 40 courses (9 to 11 per level, 2 or 3 hours, about 6 practicals). Print a summary.
+Demo data (seeded RNG, same every time; created as a school called "Demo University, Department of Computer Science" with slug `demo`, plus a second small school "Test College" so isolation can be checked by eye): groups 100L (120), 200L (110), 300L (90), 400L (80); 6 lecture rooms (60, 80, 100, 120, 150, 200); 2 labs (60, 60) with practical courses using class_size_override = 60; 14 lecturers, each unavailable 3 to 8 periods and preferring 4 to 6; about 40 courses (9 to 11 per level, 2 or 3 hours, about 6 practicals). Print a summary.
 
 Tests: SessionBuilder splits (lecture 3h, 2-hour block option, lab 3h, lab 4h), gene_index contiguous; FeasibilityChecker each rule fails and passes; CsvImporter all-or-nothing with row numbers.
 
@@ -563,6 +761,18 @@ Prompt: "Review the whole codebase against section 13. Fix any issue. Write docs
 Checks: fresh deployment on a clean VPS and on cPanel following only DEPLOYMENT.md succeeds.
 
 ## 13. Security
+
+### 13.1 Tenant isolation (most important rule in a multi-school app)
+
+- The current school is resolved once per request from the session (`current_school_id`), and the user's membership and role in that school are checked on every request. Never take school_id from a form field or URL for logged-in pages.
+- All tenant data access goes through repository classes that require a `SchoolContext` object in their constructor and add `WHERE school_id = :school_id` to every query, including updates and deletes. No raw tenant queries in controllers or views.
+- Every record fetched by id is fetched by `(id, school_id)`; a record from another school returns 404, never 403 (do not reveal it exists).
+- Foreign keys across tenant tables must belong to the same school (validate on save: a course's lecturer and group must be in the same school).
+- Public pages resolve the school by slug and show only published jobs of that school.
+- Uploaded files are stored under `storage/uploads/{school_id}/` and served through a PHP route that checks access.
+- Tests (required): a TenantIsolationTest that creates two schools with overlapping codes and proves that every repository, list page, edit page, API endpoint, export and public page of school A never returns school B's data, including by guessing ids.
+
+### 13.2 General
 
 - Prepared statements everywhere; whitelist sortable columns.
 - CSRF on every POST and on fetch POSTs (token in a meta tag, sent as header).
@@ -624,6 +834,8 @@ With the systemd worker running, set `launch_mode = queue`; jobs start within 5 
 
 `db_host, db_port, db_name, db_user, db_pass, app_url, app_env (production|development), timezone (Africa/Lagos), php_cli_path, memory_limit_cli`.
 
+Email (verification, password reset, invitations): SMTP settings are stored in the platform settings page (host, port, encryption, username, password, from address). Implement a small SMTP client in `src/Core/Mailer.php` (AUTH LOGIN over STARTTLS or SSL) with a fallback to PHP `mail()` and a "Send test email" button. In development, write emails to `storage/logs/mail.log` instead of sending.
+
 ## 15. Experiments for Chapter Four
 
 Use real department data and the existing manual timetable. The demo seed is for development only.
@@ -664,3 +876,5 @@ Export header must record CPU, RAM, OS, PHP version and date.
 - Whether practicals are taught to the whole level or split into lab groups (sets class_size_override).
 - Hosting type (VPS or cPanel) and whether exec is allowed.
 - Institution and department names for branding.
+- Platform name and domain (used in emails and public links), and whether public sign-up should be open or invite-only at launch.
+- SMTP details for sending verification, reset and invitation emails.

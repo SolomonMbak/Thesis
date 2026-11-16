@@ -13,7 +13,7 @@ final class Response
     {
         $csp = implode('; ', [
             "default-src 'self'",
-            "script-src 'self' https://cdnjs.cloudflare.com",
+            "script-src 'self' https://cdnjs.cloudflare.com " . Theme::cspSource(),
             "style-src 'self'",
             "img-src 'self' data:",
             "font-src 'self'",

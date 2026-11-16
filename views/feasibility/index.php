@@ -1,53 +1,68 @@
 <?php
 /**
- * Feasibility check result.
+ * Check readiness (feasibility pre-check) result.
  * @var array|null $semester
  * @var array|null $last
+ * @var int $sessions class sessions of the semester
  */
 $rules = [
-    0 => 'Sessions',
-    1 => 'Rule 1: enough rooms overall',
-    2 => 'Rule 2: enough lab time',
-    3 => 'Rule 3: lecturer availability',
-    4 => 'Rule 4: group hours',
-    5 => 'Rule 5: every session can be placed',
+    0 => 'Courses',
+    1 => 'Enough rooms overall',
+    2 => 'Enough lab time',
+    3 => 'Lecturer availability',
+    4 => 'Hours of each level',
+    5 => 'Every class can be placed',
 ];
 ?>
-<h1>Feasibility check</h1>
-<p>This check looks for problems that make a clash-free timetable impossible, such as too few rooms or a lecturer
-  with too little free time. <strong>Passing is necessary but does not guarantee</strong> that a clash-free
-  timetable exists; the timetable run will show whether one can be found.</p>
+<div class="page-head">
+  <h1>Check readiness</h1>
+  <?php if ($semester): ?>
+    <form method="post" action="<?= e(url('feasibility/run')) ?>">
+      <?= $csrf->field() ?>
+      <button type="submit" class="btn btn-primary"><?= icon('check') ?> <?= $last ? 'Check again' : 'Check readiness now' ?></button>
+    </form>
+  <?php endif; ?>
+</div>
+<p class="page-intro">This finds problems in your data that make a timetable with no clashes impossible, such as too few rooms or a lecturer
+  with too little free time, so you can fix them before waiting for a run. It takes a second.
+  Passing means a clash-free timetable is <em>possible</em>, not guaranteed: the run shows whether one is found.</p>
 
 <?php if (!$semester): ?>
-  <div class="panel empty-state">There is no active semester. An administrator must create one first.</div>
+  <div class="panel empty-state"><p>There is no active semester. An administrator must create one under Manage, Semesters.</p></div>
 <?php else: ?>
-  <form method="post" action="<?= e(url('feasibility/run')) ?>" class="button-row">
-    <?= $csrf->field() ?>
-    <button type="submit" class="btn btn-primary">Run the feasibility check</button>
-  </form>
+  <p class="small muted"><?= e($sessions) ?> <?= term('class session', 'class sessions') ?> to place this semester, worked out from your courses.
+    <a href="<?= e(url('sessions')) ?>">See how courses become classes</a>.</p>
 
   <?php if (!$last): ?>
-    <div class="panel empty-state">The check has not been run for this semester yet.</div>
+    <div class="panel empty-state"><p>Not checked yet for this semester. Press <strong>Check readiness now</strong>.</p></div>
+  <?php elseif ($last['ok'] && $last['current']): ?>
+    <section class="panel verdict verdict-good">
+      <h2>Ready to generate</h2>
+      <p>Nothing in your data makes a clash-free timetable impossible. Checked <?= e(substr((string) $last['checked_at'], 0, 16)) ?>.</p>
+      <div class="button-row"><a class="btn btn-primary" href="<?= e(url('generate')) ?>"><?= icon('generate') ?> Generate your timetable</a></div>
+    </section>
   <?php elseif ($last['ok']): ?>
-    <div class="panel panel-success">
-      <h2>Passed</h2>
-      <p>Checked on <?= e($last['checked_at']) ?>. <a href="<?= e(url('generate')) ?>">Go to Generate</a>.</p>
-    </div>
+    <section class="panel panel-warning">
+      <h2>Your data changed since the last check</h2>
+      <p>The check passed on <?= e(substr((string) $last['checked_at'], 0, 16)) ?>, but rooms, periods, lecturers, availability, levels or courses
+        have changed since. Check again to be sure.</p>
+    </section>
   <?php else: ?>
-    <div class="panel panel-danger">
-      <h2>Failed: <?= e(count($last['failures'])) ?> problem(s)</h2>
-      <p class="muted">Checked on <?= e($last['checked_at']) ?>. Fix each problem using the link beside it, then run the check again.</p>
+    <section class="panel verdict verdict-bad">
+      <h2>Not ready: <?= e(count($last['failures'])) ?> problem(s) to fix</h2>
+      <p class="muted">Checked <?= e(substr((string) $last['checked_at'], 0, 16)) ?><?= $last['current'] ? '' : ' (your data has changed since; check again after fixing)' ?>.
+        Fix each problem with the link beside it, then check again.</p>
       <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th scope="col">Check</th><th scope="col">Problem</th><th scope="col">Fix</th></tr></thead>
+        <table class="table table-stack">
+          <thead><tr><th scope="col">Area</th><th scope="col">Problem and how to fix it</th><th scope="col"><span class="visually-hidden">Fix</span></th></tr></thead>
           <tbody>
           <?php foreach ($last['failures'] as $failure): ?>
             <tr>
-              <td><?= e($rules[$failure['rule']] ?? 'Rule ' . $failure['rule']) ?></td>
-              <td><?= e($failure['message']) ?></td>
-              <td>
+              <td data-label="Area"><?= e($rules[$failure['rule']] ?? 'Rule ' . $failure['rule']) ?></td>
+              <td data-label="Problem"><?= e($failure['message']) ?></td>
+              <td class="actions">
                 <?php if (!empty($failure['link'])): ?>
-                  <a href="<?= e(url($failure['link'][0], $failure['link'][1])) ?>"><?= e($failure['link'][2]) ?></a>
+                  <a class="btn btn-small" href="<?= e(url($failure['link'][0], $failure['link'][1])) ?>"><?= e($failure['link'][2]) ?></a>
                 <?php endif; ?>
               </td>
             </tr>
@@ -55,6 +70,6 @@ $rules = [
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   <?php endif; ?>
 <?php endif; ?>

@@ -3,38 +3,63 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Data\SemesterRepository;
 use App\Services\FeasibilityService;
+use App\Services\SessionBuilder;
 
 /**
- * Menu area 3: run the feasibility pre-check and show the latest result.
+ * Check readiness (the feasibility pre-check): finds problems that make a
+ * clash-free timetable impossible, each with a link to fix it.
+ *
+ * Opening the page first brings the class sessions up to date with the
+ * courses, and says so (BUILD_SPEC 10.2).
  */
 final class FeasibilityController extends Controller
 {
     public function index(): void
     {
-        $semester = (new SemesterRepository($this->app->db()))->active();
+        $semester = $this->activeSemester();
+        $service = new FeasibilityService($this->app->db(), $this->school());
+        if ($semester) {
+            $this->rebuildSessionsIfNeeded((int) $semester['id']);
+        }
         $this->render('feasibility/index', [
-            'title' => 'Feasibility check',
+            'title' => 'Check readiness',
             'semester' => $semester,
-            'last' => $semester ? (new FeasibilityService($this->app->db()))->latest((int) $semester['id']) : null,
+            'last' => $semester ? $service->latest((int) $semester['id']) : null,
+            'sessions' => $semester ? (new SessionBuilder($this->app->db(), $this->school()))->sessionCount((int) $semester['id']) : 0,
         ]);
     }
 
     public function run(): void
     {
-        $semester = (new SemesterRepository($this->app->db()))->active();
+        $semester = $this->activeSemester();
         if (!$semester) {
-            $this->app->flash->error('There is no active semester.');
+            $this->app->flash->error('There is no active semester. An administrator must create one under Manage, Semesters.');
             $this->redirect('feasibility');
         }
-        $result = (new FeasibilityService($this->app->db()))->run((int) $semester['id'], $this->app->auth()->id());
+        $result = (new FeasibilityService($this->app->db(), $this->school()))->run((int) $semester['id'], $this->app->auth()->id());
+        if ($result['rebuilt']) {
+            $this->app->flash->info("Updated {$result['rebuilt']['created']} class sessions from your courses.");
+        }
         $this->app->log('feasibility.run', 'semester', (int) $semester['id'], ['ok' => $result['ok'], 'failures' => count($result['failures'])]);
         if ($result['ok']) {
-            $this->app->flash->success('The feasibility check passed. You can now generate a timetable.');
+            $this->app->flash->success('Ready. Nothing in your data makes a clash-free timetable impossible. Next: generate your timetable.');
         } else {
-            $this->app->flash->error('The feasibility check found ' . count($result['failures']) . ' problem(s). Fix them and run it again.');
+            $this->app->flash->error('Check readiness found ' . count($result['failures']) . ' problem(s). Each one below says how to fix it.');
         }
         $this->redirect('feasibility');
+    }
+
+    private function rebuildSessionsIfNeeded(int $semesterId): void
+    {
+        try {
+            $rebuilt = (new SessionBuilder($this->app->db(), $this->school()))->ensureCurrent($semesterId);
+        } catch (\RuntimeException) {
+            return;   // a run is active; sessions are updated after it ends
+        }
+        if ($rebuilt) {
+            $this->app->log('sessions.build', 'semester', $semesterId, $rebuilt + ['automatic' => true]);
+            $this->app->flash->info("Updated {$rebuilt['created']} class sessions from your courses.");
+        }
     }
 }

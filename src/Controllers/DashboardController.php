@@ -3,60 +3,77 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Data\SemesterRepository;
+use App\Data\JobQueue;
+use App\Data\JobRepository;
+use App\Data\SettingsRepository;
+use App\Data\TableRepository;
+use App\Data\TimeslotRepository;
+use App\Services\FeasibilityService;
+use App\Services\SessionBuilder;
+use App\Services\SetupGuide;
 
 /**
- * Landing page after sign-in: counts, latest results and warnings.
- * Later increments add the feasibility result, job status and worker checks.
+ * Landing page after sign-in: the Setup Guide banner until setup is done,
+ * counts, the last readiness check and run, and warnings that say what to do.
  */
 final class DashboardController extends Controller
 {
+    private const WORKER_SILENT_MINUTES = 5;
+
     public function index(): void
     {
         $pdo = $this->app->db();
-        $semester = (new SemesterRepository($pdo))->active();
+        $school = $this->school();
+        $stale = (new JobQueue($pdo))->recoverStale();
+        $semester = $this->activeSemester();
         $semesterId = $semester ? (int) $semester['id'] : 0;
+        $jobs = new JobRepository($pdo, $school);
+        $guide = new SetupGuide($pdo, $school);
 
         $counts = [
-            'Lecturers' => $this->count('SELECT COUNT(*) FROM lecturers WHERE is_active = 1'),
-            'Student groups' => $this->count('SELECT COUNT(*) FROM student_groups'),
-            'Rooms' => $this->count('SELECT COUNT(*) FROM rooms WHERE is_active = 1'),
-            'Courses' => $this->count('SELECT COUNT(*) FROM courses WHERE semester_id = ?', [$semesterId]),
-            'Class sessions' => $this->count(
-                'SELECT COUNT(*) FROM class_sessions cs JOIN courses c ON c.id = cs.course_id
-                 WHERE c.semester_id = ? AND cs.archived = 0',
-                [$semesterId]
-            ),
-            'Open periods' => $this->count('SELECT COUNT(*) FROM timeslots WHERE is_blocked = 0'),
+            'Rooms' => [(new TableRepository($pdo, $school, 'rooms'))->count('t.is_active = 1'), 'rooms'],
+            'Levels' => [(new TableRepository($pdo, $school, 'student_groups'))->count(), 'groups'],
+            'Lecturers' => [(new TableRepository($pdo, $school, 'lecturers'))->count('t.is_active = 1'), 'lecturers'],
+            'Courses' => [$semesterId ? (new TableRepository($pdo, $school, 'courses'))->count('t.semester_id = ?', [$semesterId]) : 0, 'courses'],
+            'Class sessions' => [$semesterId ? (new SessionBuilder($pdo, $school))->sessionCount($semesterId) : 0, 'sessions'],
+            'Open periods' => [(new TimeslotRepository($pdo, $school))->openCount(), 'school/profile'],
         ];
 
         $this->render('dashboard/index', [
             'title' => 'Dashboard',
             'counts' => $counts,
-            'warnings' => $this->warnings($semester, $counts),
+            'feasibility' => $semesterId ? (new FeasibilityService($pdo, $school))->latest($semesterId) : null,
+            'lastJob' => $semesterId ? $jobs->latest($semesterId) : null,
+            'published' => $semesterId ? $jobs->published($semesterId) : null,
+            'publicLink' => absolute_url(public_url($school->slug())),
+            'warnings' => $this->warnings($semester, $counts, $stale),
+            'guide' => ['done' => $guide->doneCount(), 'total' => count($guide->steps()), 'complete' => $guide->isComplete(), 'next' => $guide->next()],
         ]);
     }
 
     /** Plain English warnings, each saying what to do next. */
-    private function warnings(?array $semester, array $counts): array
+    private function warnings(?array $semester, array $counts, int $stale): array
     {
         $warnings = [];
         if ($semester === null) {
-            $warnings[] = 'No semester is active yet. An administrator should create one and set it as active.';
+            $warnings[] = 'No semester is active. An administrator should create one under Manage, Semesters.';
         }
-        if ($counts['Open periods'] === 0) {
-            $warnings[] = 'No teaching periods exist yet. Generate them from the period settings.';
+        if ($counts['Open periods'][0] === 0) {
+            $warnings[] = 'Your teaching week has no open periods. Open School profile and periods and unblock some.';
         }
-        if ($semester !== null && $counts['Courses'] > 0 && $counts['Class sessions'] === 0) {
-            $warnings[] = 'Courses exist but class sessions have not been built. Build sessions before generating a timetable.';
+        if ($stale > 0) {
+            $warnings[] = "{$stale} run(s) stopped responding for over 10 minutes and were marked as failed. Start the run again; "
+                . 'if it keeps happening, ask the platform administrator to check the Health page.';
+        }
+        $settings = new SettingsRepository($this->app->db());
+        if ($settings->get('launch_mode') === 'queue') {
+            $heartbeat = (string) $settings->get('worker_heartbeat', '');
+            $age = $heartbeat !== '' ? time() - strtotime($heartbeat) : null;
+            if ($age === null || $age > self::WORKER_SILENT_MINUTES * 60) {
+                $warnings[] = 'Timetable runs are waiting for the background worker, which has not checked in for over '
+                    . self::WORKER_SILENT_MINUTES . ' minutes, so new runs will not start yet. Ask the platform administrator to check the cron job (Health page).';
+            }
         }
         return $warnings;
-    }
-
-    private function count(string $sql, array $params = []): int
-    {
-        $stmt = $this->app->db()->prepare($sql);
-        $stmt->execute($params);
-        return (int) $stmt->fetchColumn();
     }
 }

@@ -4,7 +4,7 @@ Read `BUILD_SPEC.md` fully before writing any code. It is the single source of t
 
 ## What we are building
 
-A deployable, production-ready web application: an automated class timetabling system for a university department. Timetabling rules are modelled as a constraint satisfaction problem and solved by a genetic algorithm with a targeted repair operator. It is also the software artefact for an M.Sc. dissertation (Information Systems and Technology, Faculty of Computing, National Open University of Nigeria), so code clarity matters: parts of it will be printed in the appendix.
+A deployable, production-ready, multi-school web application: any school or department can sign up, get its own isolated workspace, and generate clash-free class timetables. It must be easy for a first-time user with no training, guided by a Setup Guide and in-app help. Timetabling rules are modelled as a constraint satisfaction problem and solved by a genetic algorithm with a targeted repair operator. It is also the software artefact for an M.Sc. dissertation (Information Systems and Technology, Faculty of Computing, National Open University of Nigeria), so code clarity matters: parts of it will be printed in the appendix.
 
 ## Stack (fixed)
 
@@ -20,7 +20,9 @@ A deployable, production-ready web application: an automated class timetabling s
 3. `src/Engine/` is pure PHP: no database, sessions, superglobals or output. Only `bin/run_ga.php` connects engine and database.
 4. All randomness through one seeded `App\Engine\Rng`. Same seed + data + settings = same result.
 5. Security on every page: CSRF on all POSTs, `e()` for all output, prepared statements, role checks, login throttling, secure session cookies, security headers.
-6. No hard-coded weights or GA parameters in engine code.
+6. Multi-school: every tenant query goes through a repository that takes a `SchoolContext` and filters by `school_id`. Never trust a school_id from user input. Records from another school return 404. See BUILD_SPEC 13.1. TenantIsolationTest must always pass.
+6a. Usability is a requirement, not polish: every page has a help panel with real content, a clear primary action, a helpful empty state, and fits the Setup Guide flow (BUILD_SPEC 10.2, 10.3). Dark and light themes via CSS variables only.
+6b. No hard-coded weights or GA parameters in engine code.
 7. Schema changes only through numbered migration files in `database/migrations/` applied by `bin/migrate.php`. Never edit an applied migration.
 8. Every increment ships with the tests listed in BUILD_SPEC and `php tests/run.php` must be green before moving on.
 9. User-facing text in plain English. No em dashes anywhere in UI text or docs.

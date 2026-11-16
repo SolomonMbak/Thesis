@@ -3,40 +3,44 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\SchoolContext;
+use App\Data\WeightRepository;
 use App\Engine\ProblemData;
 use PDO;
 
 /**
- * Reads one semester's data from the database and builds the engine's
- * ProblemData. This and bin/run_ga.php are the only bridges between the
+ * Reads one semester's data of one school from the database and builds the
+ * engine's ProblemData. Every query is limited to the context's school. This and bin/run_ga.php are the only bridges between the
  * database and the engine.
  */
 final class ProblemLoader
 {
-    public function __construct(private PDO $pdo)
+    public function __construct(private PDO $pdo, private SchoolContext $school)
     {
     }
 
     /** Current weights from constraint_weights, as ['H' => 1000, 'S1' => 5, ...]. */
     public function currentWeights(): array
     {
-        $rows = $this->pdo->query('SELECT code, weight FROM constraint_weights')->fetchAll(PDO::FETCH_KEY_PAIR);
-        return array_map('intval', $rows);
+        return (new WeightRepository($this->pdo, $this->school))->map();
     }
 
     /**
      * @param array|null $weights snapshot to use (e.g. from ga_jobs.weights_json); null = current weights
+     * @param int|null   $jobId   load exactly the sessions this saved job used (even if archived since),
+     *                            instead of the semester's current sessions
      */
-    public function load(int $semesterId, ?array $weights = null): ProblemContext
+    public function load(int $semesterId, ?array $weights = null, ?int $jobId = null): ProblemContext
     {
         $weights ??= $this->currentWeights();
+        [$sessionFilter, $params] = $jobId === null
+            ? ['c.semester_id = ? AND cs.archived = 0', [$semesterId]]
+            : ['cs.id IN (SELECT session_id FROM timetable_entries WHERE job_id = ? AND school_id = ?)', [$jobId, $this->school->id]];
 
-        $periodRows = $this->pdo->query(
-            "SELECT id, day_of_week, period_no, TIME_FORMAT(start_time, '%H:%i') AS start_time,
-                    TIME_FORMAT(end_time, '%H:%i') AS end_time, is_blocked
-             FROM timeslots ORDER BY day_of_week, period_no"
-        )->fetchAll();
-        $roomRows = $this->pdo->query('SELECT * FROM rooms ORDER BY code')->fetchAll();
+        $periodRows = (new \App\Data\TimeslotRepository($this->pdo, $this->school))->all();
+        $rooms = $this->pdo->prepare('SELECT * FROM rooms WHERE school_id = ? ORDER BY code');
+        $rooms->execute([$this->school->id]);
+        $roomRows = $rooms->fetchAll();
 
         $stmt = $this->pdo->prepare(
             'SELECT cs.id, cs.session_no, cs.duration, cs.gene_index,
@@ -47,10 +51,10 @@ final class ProblemLoader
              JOIN courses c ON c.id = cs.course_id
              JOIN student_groups g ON g.id = c.group_id
              JOIN lecturers l ON l.id = c.lecturer_id
-             WHERE c.semester_id = ? AND cs.archived = 0
-             ORDER BY cs.gene_index'
+             WHERE cs.school_id = ? AND ' . $sessionFilter . '
+             ORDER BY cs.gene_index, cs.id'
         );
-        $stmt->execute([$semesterId]);
+        $stmt->execute([$this->school->id, ...$params]);
         $sessionRows = $stmt->fetchAll();
 
         // Index maps
@@ -137,9 +141,9 @@ final class ProblemLoader
         $placeholders = implode(',', array_fill(0, count($lecturerIds), '?'));
         $stmt = $this->pdo->prepare(
             "SELECT lecturer_id, timeslot_id, status FROM lecturer_availability
-             WHERE lecturer_id IN ({$placeholders}) AND status <> 'available'"
+             WHERE school_id = ? AND lecturer_id IN ({$placeholders}) AND status <> 'available'"
         );
-        $stmt->execute($lecturerIds);
+        $stmt->execute([$this->school->id, ...$lecturerIds]);
         foreach ($stmt->fetchAll() as $row) {
             $l = $byId[(int) $row['lecturer_id']];
             $p = $periodIndex[(int) $row['timeslot_id']] ?? null;

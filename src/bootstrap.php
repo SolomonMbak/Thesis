@@ -13,6 +13,8 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/src/helpers.php';
+require_once APP_ROOT . '/src/icons.php';
+require_once APP_ROOT . '/src/glossary.php';
 
 // PSR-4 style autoloader: App\Core\Db lives in src/Core/Db.php.
 spl_autoload_register(static function (string $class): void {

@@ -9,13 +9,17 @@ use App\Core\Config;
 use App\Core\Db;
 use App\Core\Migrator;
 use App\Core\Validator;
+use App\Data\SchoolRepository;
 use App\Data\SettingsRepository;
+use App\Data\UserRepository;
 use PDO;
 
 /**
- * First-run installation: check the server, save the database settings,
- * create the tables, the first administrator and the period grid, then lock
- * itself so it can never run again.
+ * First-run installation (BUILD_SPEC increment 1): check the server, save the
+ * database settings, create the tables and the platform administrator,
+ * optionally create a first school owned by that person (with its default
+ * periods, weights, settings and an active semester), then lock itself so it
+ * can never run again.
  */
 final class Installer
 {
@@ -74,15 +78,16 @@ final class Installer
             'db_port' => 'required|int|min:1|max:65535',
             'db_name' => 'required|maxlen:64',
             'db_user' => 'required|maxlen:80',
-            'institution_name' => 'required|maxlen:150',
-            'department_name' => 'required|maxlen:150',
+            'platform_name' => 'required|maxlen:60',
+            'school_name' => (($in['create_school'] ?? '0') === '1' ? 'required|' : '') . 'maxlen:150',
+            'department_label' => 'maxlen:150',
             'admin_name' => 'required|maxlen:120',
             'admin_email' => 'required|email|maxlen:120',
             'admin_password' => 'required|minlen:' . Auth::MIN_PASSWORD_LENGTH . '|maxlen:200',
         ], [
             'db_host' => 'Database host', 'db_port' => 'Database port', 'db_name' => 'Database name',
-            'db_user' => 'Database user', 'institution_name' => 'Institution name',
-            'department_name' => 'Department name', 'admin_name' => 'Your full name',
+            'db_user' => 'Database user', 'platform_name' => 'Platform name', 'school_name' => 'School name',
+            'department_label' => 'Department', 'admin_name' => 'Your full name',
             'admin_email' => 'Your email address', 'admin_password' => 'Password',
         ]);
         if (!isset($errors['admin_password']) && ($in['admin_password'] ?? '') !== ($in['admin_password_confirm'] ?? '')) {
@@ -122,7 +127,12 @@ final class Installer
         (new Migrator($pdo, APP_ROOT . '/database/migrations'))->migrate();
         $adminId = $this->saveAdmin($pdo, $in);
         $this->saveSettings($pdo, $in);
-        $this->createPeriodsIfMissing($pdo);
+        if (($in['create_school'] ?? '0') === '1') {
+            (new SchoolRepository($pdo))->create([
+                'name' => trim((string) $in['school_name']),
+                'department_label' => trim((string) ($in['department_label'] ?? '')),
+            ], $adminId);
+        }
 
         if (file_put_contents(self::lockFile(), 'Installed ' . date('c') . PHP_EOL) === false) {
             throw new \RuntimeException('Could not write storage/installed.lock. Make storage/ writable and try again.');
@@ -155,42 +165,30 @@ final class Installer
         }
     }
 
+    /** The platform administrator (a verified account; schools are separate). */
     private function saveAdmin(PDO $pdo, array $in): int
     {
+        $users = new UserRepository($pdo);
         $email = strtolower(trim((string) $in['admin_email']));
-        $hash = Auth::hashPassword((string) $in['admin_password']);
-        $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-        $stmt->execute([$email]);
-        $id = $stmt->fetchColumn();
-        if ($id) {
-            $pdo->prepare("UPDATE users SET full_name = ?, password_hash = ?, role = 'admin', is_active = 1 WHERE id = ?")
-                ->execute([trim((string) $in['admin_name']), $hash, $id]);
-            return (int) $id;
+        $existing = $users->findByEmail($email);
+        if ($existing) {
+            $users->setPassword((int) $existing['id'], (string) $in['admin_password']);
+            $users->updateProfile((int) $existing['id'], (string) $in['admin_name']);
+            $id = (int) $existing['id'];
+        } else {
+            $id = $users->create((string) $in['admin_name'], $email, (string) $in['admin_password'], true, true);
         }
-        $pdo->prepare("INSERT INTO users (full_name, email, password_hash, role) VALUES (?, ?, ?, 'admin')")
-            ->execute([trim((string) $in['admin_name']), $email, $hash]);
-        return (int) $pdo->lastInsertId();
+        $users->setPlatformAdmin($id, true);
+        $users->markVerified($id);
+        return $id;
     }
 
     private function saveSettings(PDO $pdo, array $in): void
     {
         $settings = new SettingsRepository($pdo);
-        $settings->set('institution_name', trim((string) $in['institution_name']));
-        $settings->set('department_name', trim((string) $in['department_name']));
+        $settings->set('platform_name', trim((string) $in['platform_name']));
+        $settings->set('signup_open', ($in['signup_open'] ?? '1') === '1' ? '1' : '0');
         $settings->set('launch_mode', Environment::recommendedLaunchMode());
         $settings->set('php_cli_path', Environment::guessPhpCli());
-    }
-
-    private function createPeriodsIfMissing(PDO $pdo): void
-    {
-        if ((int) $pdo->query('SELECT COUNT(*) FROM timeslots')->fetchColumn() > 0) {
-            return;
-        }
-        $settings = new SettingsRepository($pdo);
-        (new PeriodGenerator($pdo))->generate(
-            (string) $settings->get('day_start', '08:00'),
-            (string) $settings->get('day_end', '18:00'),
-            (int) $settings->get('period_minutes', '60')
-        );
     }
 }

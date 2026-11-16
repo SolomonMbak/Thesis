@@ -130,6 +130,34 @@ abstract class TestCase
         return $pdo;
     }
 
+    /** The school of singleSchoolDb(), for services under test. */
+    protected ?\App\Core\SchoolContext $school = null;
+
+    /**
+     * Migrated test database with one school (id 1, slug "test"). Only in
+     * this test database, school_id defaults to 1 on every tenant table, so
+     * fixtures can stay short (INSERT INTO rooms (code, ...) ...). The real
+     * schema has no default: every query must give the school. Tests that
+     * check isolation create a second school and always give school_id.
+     */
+    protected function singleSchoolDb(): PDO
+    {
+        $pdo = $this->migratedTestDb();
+        $pdo->exec("INSERT INTO schools (id, name, slug) VALUES (1, 'Test School', 'test')");
+        foreach (self::TENANT_TABLES as $table) {
+            $pdo->exec("ALTER TABLE {$table} ALTER school_id SET DEFAULT 1");
+        }
+        foreach (\App\Data\WeightRepository::DEFAULTS as [$code, $description, $type, $weight]) {
+            $pdo->prepare('INSERT INTO constraint_weights (school_id, code, description, constraint_type, weight) VALUES (1, ?, ?, ?, ?)')
+                ->execute([$code, $description, $type, $weight]);
+        }
+        $this->school = \App\Core\SchoolContext::system($pdo->query('SELECT * FROM schools WHERE id = 1')->fetch());
+        return $pdo;
+    }
+
+    protected const TENANT_TABLES = ['semesters', 'lecturers', 'student_groups', 'rooms', 'timeslots', 'courses', 'class_sessions',
+        'lecturer_availability', 'constraint_weights', 'feasibility_checks', 'ga_jobs', 'ga_progress', 'timetable_entries'];
+
     /**
      * A small hand-built problem: $days days of $perDay periods, rooms and
      * sessions given as short arrays. Returns a ProblemContext so services

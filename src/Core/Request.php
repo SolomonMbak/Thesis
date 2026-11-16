@@ -9,6 +9,8 @@ namespace App\Core;
  */
 final class Request
 {
+    private ?array $pathRoute = null;
+
     public function __construct(
         private array $get,
         private array $post,
@@ -32,16 +34,48 @@ final class Request
         return $this->method() === 'POST';
     }
 
-    /** The route name from ?r=..., limited to safe characters. */
+    /** The route name from ?r=... (limited to safe characters), or from a pretty path such as /s/demo. */
     public function route(): string
     {
         $r = (string) ($this->get['r'] ?? '');
-        return preg_match('#^[a-z0-9_/-]{1,60}$#', $r) ? $r : '';
+        if ($r !== '') {
+            return preg_match('#^[a-z0-9_/-]{1,60}$#', $r) ? $r : '';
+        }
+        return $this->pathRoute()['r'] ?? '';
     }
 
     public function query(string $key, mixed $default = null): mixed
     {
-        return $this->get[$key] ?? $default;
+        return $this->get[$key] ?? $this->pathRoute()[$key] ?? $default;
+    }
+
+    /**
+     * Pretty public paths (BUILD_SPEC 10.4): /s/{slug}, /s/{slug}/{level|lecturer|room}/{id} and /help.
+     * Anything else is left to ?r=.
+     */
+    private function pathRoute(): array
+    {
+        if ($this->pathRoute !== null) {
+            return $this->pathRoute;
+        }
+        $path = (string) parse_url((string) ($this->server['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+        $base = self::basePath();
+        // With the root .htaccess fallback the address may leave out "/public"
+        // (/timetable/s/demo is served from /timetable/public/), so try both.
+        foreach (array_unique([$base, (string) preg_replace('#/public$#', '', $base)]) as $prefix) {
+            if ($prefix !== '' && str_starts_with($path, $prefix . '/')) {
+                $path = substr($path, strlen($prefix));
+                break;
+            }
+        }
+        $path = preg_replace('#^/index\.php#', '', $path);
+        if (preg_match('#^/s/([a-z0-9-]{1,60})(?:/(level|lecturer|room)/(\d{1,10}))?/?$#', $path, $m)) {
+            return $this->pathRoute = ['r' => 'public/school', 'slug' => $m[1], 'view' => $m[2] ?? '', 'id' => $m[3] ?? ''];
+        }
+        if (preg_match('#^/help/?$#', $path)) {
+            return $this->pathRoute = ['r' => 'help'];
+        }
+        return $this->pathRoute = [];
     }
 
     public function input(string $key, mixed $default = null): mixed

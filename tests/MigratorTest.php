@@ -97,9 +97,11 @@ final class MigratorTest extends TestCase
         $this->assertSame([], $migrator->migrate(), 'Second run applies nothing.');
 
         $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
-        $this->assertCount(18, $tables, 'All 18 tables from BUILD_SPEC section 4 should exist.');
-        $weights = $pdo->query('SELECT code, weight FROM constraint_weights ORDER BY code')->fetchAll(PDO::FETCH_KEY_PAIR);
-        $this->assertSame(['H' => 1000, 'S1' => 5, 'S2' => 3, 'S3' => 4, 'S4' => 3, 'S5' => 2], array_map('intval', $weights));
+        $this->assertCount(25, $tables, 'All 25 tables of BUILD_SPEC 4 (with 4.1 multi-school and the 10.7 calendar) should exist.');
+        // A fresh install has no school yet, so no weights; each new school gets its own copy.
+        $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM constraint_weights')->fetchColumn());
+        $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM schools')->fetchColumn());
+        $this->assertTrue((bool) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'courses' AND COLUMN_NAME = 'school_id' AND IS_NULLABLE = 'NO'")->fetchColumn(), 'courses.school_id is required.');
         $this->dropAllTables($pdo);
     }
 }

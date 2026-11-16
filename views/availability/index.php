@@ -6,17 +6,21 @@
  * @var array $statuses  timeslot_id => status
  * @var array $grid
  * @var array $summary   lecturer_id => [preferred, unavailable]
+ * @var bool  $skipped   Setup Guide step 6 was skipped
  */
 use App\Services\PeriodGenerator;
 
 $labels = ['available' => 'Available', 'preferred' => 'Preferred', 'unavailable' => 'Unavailable'];
 ?>
 <h1>Lecturer availability</h1>
+<p class="page-intro">Keep classes out of times a lecturer cannot teach, and favour the times they prefer. Every period starts as available, so you only mark the exceptions.</p>
 
 <?php if (!$lecturers): ?>
-  <div class="panel empty-state">No active lecturers. <a href="<?= e(url('lecturers/create')) ?>">Add a lecturer</a> first.</div>
+  <div class="panel empty-state"><p>No active lecturers yet. Availability is set per lecturer, so add your lecturers first.</p>
+    <div class="button-row"><a class="btn btn-primary" href="<?= e(url('lecturers/create')) ?>">Add a lecturer</a> <a class="btn" href="<?= e(url('import')) ?>">Import from spreadsheet</a></div></div>
 <?php elseif (!$grid['rows']): ?>
-  <div class="panel empty-state">No periods exist yet. <a href="<?= e(url('periods')) ?>">Generate the periods</a> first.</div>
+  <div class="panel empty-state"><p>The teaching week has no periods yet. Save your school profile to create them.</p>
+    <div class="button-row"><a class="btn btn-primary" href="<?= e(url('school/profile')) ?>">Open school profile</a></div></div>
 <?php else: ?>
   <form method="get" action="<?= e(url()) ?>" class="toolbar">
     <input type="hidden" name="r" value="availability">
@@ -116,4 +120,12 @@ $labels = ['available' => 'Available', 'preferred' => 'Preferred', 'unavailable'
       <button type="submit" class="btn">Apply to all lecturers</button>
     </form>
   </section>
+<?php endif; ?>
+
+<?php if ($lecturers && !$skipped && empty($summary)): ?>
+  <form method="post" action="<?= e(url('availability/skip')) ?>" class="panel button-row">
+    <?= $csrf->field() ?>
+    <span>No availability to record yet? You can skip this step for now: every lecturer then counts as available at every open period.</span>
+    <button type="submit" class="btn">Skip for now</button>
+  </form>
 <?php endif; ?>

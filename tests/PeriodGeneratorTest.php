@@ -36,13 +36,13 @@ final class PeriodGeneratorTest extends TestCase
 
     public function testGenerateCreates50PeriodsWith2Blocked(): void
     {
-        $pdo = $this->migratedTestDb();
-        $result = (new PeriodGenerator($pdo))->generate('08:00', '18:00', 60);
+        $pdo = $this->singleSchoolDb();
+        $result = (new PeriodGenerator($pdo, $this->school))->generate('08:00', '18:00', 60);
         $this->assertSame(50, $result['created']);
         $this->assertSame(2, (int) $pdo->query('SELECT SUM(is_blocked) FROM timeslots')->fetchColumn());
 
         $pdo->exec('UPDATE timeslots SET is_blocked = 1 WHERE day_of_week = 1 AND period_no = 1');
-        $again = (new PeriodGenerator($pdo))->generate('08:00', '16:00', 60);
+        $again = (new PeriodGenerator($pdo, $this->school))->generate('08:00', '16:00', 60);
         $this->assertSame(10, $again['removed']);
         $this->assertSame(3, (int) $pdo->query('SELECT SUM(is_blocked) FROM timeslots')->fetchColumn(), 'Blocked flags are kept.');
         $this->dropAllTables($pdo);

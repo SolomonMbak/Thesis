@@ -5,20 +5,24 @@ namespace App\Controllers;
 
 use App\Core\HttpException;
 use App\Core\Validator;
+use App\Data\TableRepository;
 
 /**
- * Shared list / create / edit / delete pages for simple master data tables.
- * Each subclass describes its table in definition(); the SQL only ever uses
- * column names from that definition, never from the request.
+ * Shared list / create / edit / delete pages for simple master data tables
+ * (rooms, levels, lecturers, courses). Each subclass describes its table in
+ * definition(); all reading and writing goes through TableRepository, which
+ * limits every query to the current school. A record of another school is
+ * "not found" (404), never "not allowed", so its existence is not revealed.
  *
  * definition() keys:
- *   route, title, singular, table, entity (for the audit log), order,
- *   fields:  name => [label, rules, type, (options), (help), (nullable), (unique), (exists => table)]
+ *   route, title, singular, plural, table, entity (for the activity log), order,
+ *   fields:  name => [label, rules, type, (options), (help), (nullable), (unique), (default)]
  *   columns: list column => heading  (from select)
- *   select:  SQL for the list, table aliased as t
+ *   select:  SELECT ... FROM <table> t [JOIN ...]
  *   search:  qualified columns searched by ?q=
  *   filters: field => label, matched exactly from ?<field>=
- *   empty:   message when the list is empty
+ *   empty:   one line shown when the list is empty
+ *   add:     label of the primary button, e.g. "Add room"
  *   in_use:  message when delete fails because other records use it
  */
 abstract class CrudController extends Controller
@@ -37,7 +41,7 @@ abstract class CrudController extends Controller
         return [];
     }
 
-    /** Select options computed at run time, e.g. lists of groups. */
+    /** Select options computed at run time, e.g. lists of levels. */
     protected function options(): array
     {
         return [];
@@ -46,6 +50,17 @@ abstract class CrudController extends Controller
     /** Called after a successful save or delete. */
     protected function afterChange(string $action, int $id): void
     {
+    }
+
+    /** Optional message above the list (e.g. "no active semester"). */
+    protected function notice(): ?string
+    {
+        return null;
+    }
+
+    protected function repository(): TableRepository
+    {
+        return new TableRepository($this->app->db(), $this->school(), $this->definition()['table']);
     }
 
     public function index(): void
@@ -67,14 +82,10 @@ abstract class CrudController extends Controller
                 $activeFilters[$field] = $value;
             }
         }
-        $sql = $def['select'] . ' WHERE ' . implode(' AND ', $where) . ' ORDER BY ' . $def['order'];
-        $stmt = $this->app->db()->prepare($sql);
-        $stmt->execute($params);
-
         $this->render('crud/index', [
             'title' => $def['title'],
             'def' => $def,
-            'rows' => $stmt->fetchAll(),
+            'rows' => $this->repository()->list($def['select'], $where, $params, $def['order']),
             'q' => $q,
             'activeFilters' => $activeFilters,
             'options' => $this->options(),
@@ -109,7 +120,7 @@ abstract class CrudController extends Controller
         $def = $this->definition();
         $row = $this->findOrFail((int) $this->app->request->input('id', 0));
         try {
-            $this->app->db()->prepare("DELETE FROM {$def['table']} WHERE id = ?")->execute([$row['id']]);
+            $this->repository()->delete((int) $row['id']);
         } catch (\PDOException $ex) {
             if ($ex->getCode() === '23000') {
                 $this->app->flash->error($def['in_use']);
@@ -123,12 +134,6 @@ abstract class CrudController extends Controller
         $this->redirect($def['route']);
     }
 
-    /** Optional message above the list (e.g. "no active semester"). */
-    protected function notice(): ?string
-    {
-        return null;
-    }
-
     private function save(?int $id): void
     {
         $def = $this->definition();
@@ -140,17 +145,11 @@ abstract class CrudController extends Controller
             return;
         }
         $values = $this->toDbValues($def['fields'], $input);
-        $pdo = $this->app->db();
         if ($id === null) {
-            $values += $this->fixedValues();
-            $columns = array_keys($values);
-            $pdo->prepare("INSERT INTO {$def['table']} (" . implode(', ', $columns) . ') VALUES ('
-                . implode(', ', array_fill(0, count($columns), '?')) . ')')->execute(array_values($values));
-            $id = (int) $pdo->lastInsertId();
+            $id = $this->repository()->insert($values + $this->fixedValues());
             $action = 'create';
         } else {
-            $set = implode(', ', array_map(fn ($c) => "{$c} = ?", array_keys($values)));
-            $pdo->prepare("UPDATE {$def['table']} SET {$set} WHERE id = ?")->execute([...array_values($values), $id]);
+            $this->repository()->update($id, $values);
             $action = 'update';
         }
         $this->app->log($def['entity'] . '.' . $action, $def['entity'], $id, $values);
@@ -197,19 +196,16 @@ abstract class CrudController extends Controller
             if (isset($errors[$name]) || $input[$name] === '') {
                 continue;
             }
+            // Select choices come from this school only, so a level or lecturer of
+            // another school can never be linked (BUILD_SPEC 13.1, same-school foreign keys).
             if (($field['type'] ?? '') === 'select') {
                 $choices = $field['options'] ?? $options[$name] ?? [];
                 if (!array_key_exists($input[$name], $choices)) {
-                    $errors[$name] = "Choose a valid {$field['label']}.";
+                    $errors[$name] = "Choose a {$field['label']} from the list.";
                 }
             }
-            if (!empty($field['unique'])) {
-                $sql = "SELECT COUNT(*) FROM {$def['table']} t WHERE t.{$name} = ? AND {$scopeSql}" . ($id ? ' AND t.id <> ?' : '');
-                $stmt = $this->app->db()->prepare($sql);
-                $stmt->execute(array_merge([$input[$name]], $scopeParams, $id ? [$id] : []));
-                if ((int) $stmt->fetchColumn() > 0) {
-                    $errors[$name] = "{$field['label']} '{$input[$name]}' is already used.";
-                }
+            if (!empty($field['unique']) && $this->repository()->exists($name, $input[$name], $id, [$scopeSql], $scopeParams)) {
+                $errors[$name] = "{$field['label']} '{$input[$name]}' is already used. Each {$def['singular']} needs its own.";
             }
         }
         return $errors;
@@ -237,11 +233,9 @@ abstract class CrudController extends Controller
     {
         $def = $this->definition();
         [$scopeSql, $params] = $this->scope();
-        $stmt = $this->app->db()->prepare("SELECT t.* FROM {$def['table']} t WHERE t.id = ? AND {$scopeSql}");
-        $stmt->execute([$id, ...$params]);
-        $row = $stmt->fetch();
+        $row = $this->repository()->find($id, [$scopeSql], $params);
         if (!$row) {
-            throw new HttpException(404, 'That ' . $def['singular'] . ' no longer exists. It may have been deleted.');
+            throw new HttpException(404, 'That ' . $def['singular'] . ' does not exist. It may have been deleted.');
         }
         return $row;
     }

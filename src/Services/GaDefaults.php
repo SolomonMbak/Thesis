@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Data\SettingsRepository;
+use App\Data\SchoolSettingsRepository;
 
 /**
- * Default GA parameters stored in settings (keys ga_*), converted to and
+ * Default GA parameters of a school, stored in school_settings (keys ga_*), converted to and
  * from the ga_jobs column names used by GaParams.
  */
 final class GaDefaults
@@ -32,7 +32,7 @@ final class GaDefaults
         'elite_count' => '2', 'greedy_share' => '0.2', 'max_repair_moves' => '30', 'log_every' => '1',
     ];
 
-    public static function load(SettingsRepository $settings): array
+    public static function load(SchoolSettingsRepository $settings): array
     {
         $values = [];
         foreach (self::SETTING_KEYS as $column => $key) {
@@ -41,7 +41,7 @@ final class GaDefaults
         return $values + ['repair_enabled' => 1];
     }
 
-    public static function save(SettingsRepository $settings, array $values): void
+    public static function save(SchoolSettingsRepository $settings, array $values): void
     {
         foreach (self::SETTING_KEYS as $column => $key) {
             $settings->set($key, trim((string) $values[$column]));

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\SchoolContext;
 use PDO;
 
 /**
@@ -41,7 +42,7 @@ final class CsvImporter
     private const DAY_NAMES = ['mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5,
         'monday' => 1, 'tuesday' => 2, 'wednesday' => 3, 'thursday' => 4, 'friday' => 5];
 
-    public function __construct(private PDO $pdo)
+    public function __construct(private PDO $pdo, private SchoolContext $school)
     {
     }
 
@@ -285,9 +286,11 @@ final class CsvImporter
                 'needs_lab', 'allow_two_hour_block', 'class_size_override', 'group_id', 'lecturer_id']],
             'availability' => ['lecturer_availability', ['lecturer_id', 'timeslot_id'], ['lecturer_id', 'timeslot_id', 'status']],
         };
-        $where = implode(' AND ', array_map(fn ($c) => "{$c} = ?", $keyColumns));
+        // Every lookup, update and delete is limited to this school.
+        $where = implode(' AND ', array_map(fn ($c) => "{$c} = ?", ['school_id', ...$keyColumns]));
+        $columns = ['school_id', ...$columns];
         $find = $this->pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE {$where}");
-        $setColumns = array_diff($columns, $keyColumns);
+        $setColumns = array_diff($columns, $keyColumns, ['school_id']);
         $update = $this->pdo->prepare("UPDATE {$table} SET " . implode(', ', array_map(fn ($c) => "{$c} = ?", $setColumns)) . " WHERE {$where}");
         $insert = $this->pdo->prepare("INSERT INTO {$table} (" . implode(', ', $columns) . ') VALUES ('
             . implode(', ', array_fill(0, count($columns), '?')) . ')');
@@ -295,9 +298,10 @@ final class CsvImporter
         $counts = ['inserted' => 0, 'updated' => 0];
         foreach ($records as $record) {
             $record['semester_id'] = $semesterId;
+            $record['school_id'] = $this->school->id;
             $record['email'] = ($record['email'] ?? '') === '' ? null : $record['email'];
             $record['class_size_override'] = ($record['class_size_override'] ?? '') === '' ? null : (int) $record['class_size_override'];
-            $keyValues = array_map(fn ($c) => $record[$c], $keyColumns);
+            $keyValues = array_map(fn ($c) => $record[$c], ['school_id', ...$keyColumns]);
             $find->execute($keyValues);
             $exists = (int) $find->fetchColumn() > 0;
 
@@ -325,20 +329,28 @@ final class CsvImporter
         $lookups = [];
         if (in_array($type, ['courses', 'availability'], true)) {
             $lookups['lecturers'] = array_change_key_case(
-                $this->pdo->query('SELECT staff_no, id FROM lecturers')->fetchAll(PDO::FETCH_KEY_PAIR)
+                $this->pairs('SELECT staff_no, id FROM lecturers WHERE school_id = ?')
             );
         }
         if ($type === 'courses') {
             $lookups['groups'] = array_change_key_case(
-                $this->pdo->query('SELECT code, id FROM student_groups')->fetchAll(PDO::FETCH_KEY_PAIR)
+                $this->pairs('SELECT code, id FROM student_groups WHERE school_id = ?')
             );
         }
         if ($type === 'availability') {
-            $lookups['timeslots'] = $this->pdo->query(
-                "SELECT CONCAT(day_of_week, ' ', TIME_FORMAT(start_time, '%H:%i')), id FROM timeslots"
-            )->fetchAll(PDO::FETCH_KEY_PAIR);
+            $lookups['timeslots'] = $this->pairs(
+                "SELECT CONCAT(day_of_week, ' ', TIME_FORMAT(start_time, '%H:%i')), id FROM timeslots WHERE school_id = ?"
+            );
         }
         return $lookups;
+    }
+
+    /** key => id pairs from a query with one school_id placeholder. */
+    private function pairs(string $sql): array
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$this->school->id]);
+        return $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
     }
 
     private function requireText(array $r, string $col, int $max, array &$e): void

@@ -32,7 +32,9 @@ if (Installer::isInstalled()) {
 
 $input = [
     'db_host' => '127.0.0.1', 'db_port' => '3306', 'db_name' => '', 'db_user' => '', 'db_pass' => '',
-    'app_url' => '', 'institution_name' => '', 'department_name' => '',
+    // The site address is suggested from this request; the installer stores it so emailed links never depend on the Host header.
+    'app_url' => absolute_url(Request::basePath()), 'platform_name' => 'Timetable', 'signup_open' => '1',
+    'create_school' => '1', 'school_name' => '', 'department_label' => '',
     'admin_name' => '', 'admin_email' => '',
 ];
 $errors = [];

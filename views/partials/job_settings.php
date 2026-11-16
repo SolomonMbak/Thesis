@@ -5,7 +5,7 @@
  */
 $weights = $job['weights_json'] ? json_decode((string) $job['weights_json'], true) : null;
 $rows = $job['job_type'] === 'manual' ? [] : [
-    'Repair' => $job['repair_enabled'] ? 'On (GA with targeted repair)' : 'Off (standard GA)',
+    'Repair' => $job['repair_enabled'] ? 'On (genetic algorithm with targeted repair)' : 'Off (standard genetic algorithm)',
     'Random seed' => $job['random_seed'],
     'Population size' => $job['population_size'],
     'Maximum generations' => $job['max_generations'],

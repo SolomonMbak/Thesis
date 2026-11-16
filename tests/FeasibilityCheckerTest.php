@@ -69,7 +69,7 @@ final class FeasibilityCheckerTest extends TestCase
         $failures = (new FeasibilityChecker())->check($this->context($spec + ['days' => 1, 'perDay' => 4]));
         $rule3 = array_values(array_filter($failures, fn ($f) => $f['rule'] === 3));
         $this->assertCount(1, $rule3);
-        $this->assertSame('Lecturer 1 needs 3 teaching periods but is available for only 2.', $rule3[0]['message']);
+        $this->assertSame('Lecturer 1 needs 3 teaching periods but is available for only 2. Mark more of their periods as available, or give some of their courses to another lecturer.', $rule3[0]['message']);
 
         $spec['lecturers'] = [['unavailable' => [0]]];
         $this->assertFalse(in_array(3, $this->rules($spec), true), '3 periods needed, 3 available.');

@@ -20,8 +20,8 @@ final class FeasibilityChecker
     {
         $d = $ctx->data;
         if ($d->S === 0) {
-            return [self::failure(0, 'No class sessions have been built for this semester. Add courses, then build sessions.',
-                ['sessions', [], 'Build sessions'])];
+            return [self::failure(0, 'There are no courses in this semester yet, so there is nothing to timetable. Add your courses first.',
+                ['courses', [], 'Add courses'])];
         }
 
         $openPeriods = count(array_filter($d->blocked, fn ($b) => !$b));
@@ -87,7 +87,7 @@ final class FeasibilityChecker
             }
             if ($needed[$l] > $available) {
                 $failures[] = self::failure(3, "{$ctx->lecturerNames[$l]} needs {$needed[$l]} teaching periods "
-                    . "but is available for only {$available}.",
+                    . "but is available for only {$available}. Mark more of their periods as available, or give some of their courses to another lecturer.",
                     ['availability', ['lecturer' => $ctx->lecturerIds[$l]], 'Edit availability']);
             }
         }
@@ -105,8 +105,8 @@ final class FeasibilityChecker
         $failures = [];
         for ($g = 0; $g < $d->G; $g++) {
             if ($needed[$g] > $openPeriods) {
-                $failures[] = self::failure(4, "Group {$ctx->groupCodes[$g]} has {$needed[$g]} hours of classes "
-                    . "but there are only {$openPeriods} open periods in the week.",
+                $failures[] = self::failure(4, "Level {$ctx->groupCodes[$g]} has {$needed[$g]} hours of classes "
+                    . "but there are only {$openPeriods} open periods in the week. Reduce the weekly hours of its courses, or unblock some periods.",
                     ['courses', ['group_id' => $ctx->groupIds[$g]], 'View courses']);
             }
         }
@@ -123,13 +123,13 @@ final class FeasibilityChecker
             $label = $ctx->sessionLabel($s);
             if (!$d->allowedRooms[$s]) {
                 $need = $info['lab'] ? 'an active lab' : 'an active room';
-                $failures[] = self::failure(5, "{$label} has no suitable room: it needs {$need} with at least {$d->sSize[$s]} seats.",
+                $failures[] = self::failure(5, "{$label} has no suitable room: it needs {$need} with at least {$d->sSize[$s]} seats. Add or reactivate a room that big, or set a smaller class size on the course (for example lab groups).",
                     ['rooms', [], 'Rooms']);
             }
             if (!$d->allowedStarts[$s]) {
                 $hours = $d->sDur[$s] === 1 ? 'an open period' : "{$d->sDur[$s]} consecutive open periods on one day";
                 $failures[] = self::failure(5, "{$label} has no valid start time: it needs {$hours} "
-                    . "when {$ctx->lecturerNames[$d->sLec[$s]]} is available, and there is none.",
+                    . "when {$ctx->lecturerNames[$d->sLec[$s]]} is available, and there is none. Mark more of their periods as available, or unblock periods.",
                     ['availability', ['lecturer' => $ctx->lecturerIds[$d->sLec[$s]]], 'Edit availability']);
             }
         }

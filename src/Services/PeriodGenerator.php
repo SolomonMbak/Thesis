@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\SchoolContext;
 use PDO;
 
 /**
@@ -17,7 +18,7 @@ final class PeriodGenerator
     public const DAYS = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday'];
     public const SHORT_DAYS = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri'];
 
-    public function __construct(private PDO $pdo)
+    public function __construct(private PDO $pdo, private SchoolContext $school)
     {
     }
 
@@ -56,10 +57,12 @@ final class PeriodGenerator
         $count = count($plan);
         $result = ['created' => 0, 'updated' => 0, 'removed' => 0];
 
-        $used = (int) $this->pdo->query(
+        $stmt = $this->pdo->prepare(
             'SELECT COUNT(*) FROM timetable_entries te JOIN timeslots t ON t.id = te.timeslot_id
-             WHERE t.period_no > ' . $count
-        )->fetchColumn();
+             WHERE t.school_id = ? AND t.period_no > ?'
+        );
+        $stmt->execute([$this->school->id, $count]);
+        $used = (int) $stmt->fetchColumn();
         if ($used > 0) {
             throw new \RuntimeException(
                 'Some periods that would be removed are used by saved timetables. '
@@ -67,33 +70,41 @@ final class PeriodGenerator
             );
         }
 
-        $this->pdo->beginTransaction();
+        // Join a transaction the caller already started (creating a school), else run our own.
+        $own = !$this->pdo->inTransaction();
+        if ($own) {
+            $this->pdo->beginTransaction();
+        }
         try {
-            $find = $this->pdo->prepare('SELECT id FROM timeslots WHERE day_of_week = ? AND period_no = ?');
-            $update = $this->pdo->prepare('UPDATE timeslots SET start_time = ?, end_time = ? WHERE id = ?');
+            $find = $this->pdo->prepare('SELECT id FROM timeslots WHERE school_id = ? AND day_of_week = ? AND period_no = ?');
+            $update = $this->pdo->prepare('UPDATE timeslots SET start_time = ?, end_time = ? WHERE id = ? AND school_id = ?');
             $insert = $this->pdo->prepare(
-                'INSERT INTO timeslots (day_of_week, period_no, start_time, end_time, is_blocked) VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO timeslots (school_id, day_of_week, period_no, start_time, end_time, is_blocked) VALUES (?, ?, ?, ?, ?, ?)'
             );
             foreach (array_keys(self::DAYS) as $day) {
                 foreach ($plan as $no => $times) {
-                    $find->execute([$day, $no]);
+                    $find->execute([$this->school->id, $day, $no]);
                     $id = $find->fetchColumn();
                     if ($id) {
-                        $update->execute([$times['start'], $times['end'], $id]);
+                        $update->execute([$times['start'], $times['end'], $id, $this->school->id]);
                         $result['updated']++;
                     } else {
                         $blocked = self::isJumuah($day, $times['start'], $times['end']) ? 1 : 0;
-                        $insert->execute([$day, $no, $times['start'], $times['end'], $blocked]);
+                        $insert->execute([$this->school->id, $day, $no, $times['start'], $times['end'], $blocked]);
                         $result['created']++;
                     }
                 }
             }
-            $delete = $this->pdo->prepare('DELETE FROM timeslots WHERE period_no > ?');
-            $delete->execute([$count]);
+            $delete = $this->pdo->prepare('DELETE FROM timeslots WHERE school_id = ? AND period_no > ?');
+            $delete->execute([$this->school->id, $count]);
             $result['removed'] = $delete->rowCount();
-            $this->pdo->commit();
+            if ($own) {
+                $this->pdo->commit();
+            }
         } catch (\Throwable $ex) {
-            $this->pdo->rollBack();
+            if ($own) {
+                $this->pdo->rollBack();
+            }
             throw $ex;
         }
         return $result;

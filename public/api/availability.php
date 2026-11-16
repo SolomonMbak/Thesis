@@ -2,22 +2,24 @@
 /**
  * POST lecturer=ID&timeslot=ID (with X-CSRF-Token header)
  * Cycles one availability cell and returns {"status": "preferred"}.
+ * Officers and above; the lecturer and period must be in the current school.
  */
 declare(strict_types=1);
 
 use App\Core\Api;
 use App\Core\Logger;
 use App\Core\Response;
+use App\Core\Router;
 use App\Services\AvailabilityService;
 
 require dirname(__DIR__, 2) . '/src/bootstrap.php';
 
-$app = Api::boot('POST');
+$app = Api::boot('POST', Router::OFFICER);
 $lecturerId = (int) $app->request->input('lecturer', 0);
 $timeslotId = (int) $app->request->input('timeslot', 0);
 
 try {
-    $status = (new AvailabilityService($app->db()))->cycle($lecturerId, $timeslotId);
+    $status = (new AvailabilityService($app->db(), $app->school()))->cycle($lecturerId, $timeslotId);
     $app->log('availability.set', 'lecturer', $lecturerId, ['timeslot' => $timeslotId, 'status' => $status]);
     Response::json(['status' => $status]);
 } catch (\InvalidArgumentException $ex) {

@@ -41,6 +41,18 @@ final class RateLimiter
             || $this->failuresFor('ip', $ip) >= $this->maxFailures;
     }
 
+    /**
+     * Count one use of a throttled action (sign-up, password reset request)
+     * under a key such as "signup|203.0.113.5" and say whether the limit is
+     * now passed. These rows use the placeholder ip "throttle", so they never
+     * add to the sign-in lockout of a real address.
+     */
+    public function hit(string $key): bool
+    {
+        $this->record($key, 'throttle', false);
+        return $this->failuresFor('email', self::normalise($key)) > $this->maxFailures;
+    }
+
     /** Whole minutes until the lock lifts (at least 1), for the error message. */
     public function minutesUntilUnlock(string $email, string $ip): int
     {

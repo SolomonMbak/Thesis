@@ -1,6 +1,7 @@
 <?php
 /**
- * Queue worker: runs queued timetable jobs one at a time.
+ * Queue worker: runs queued timetable jobs of every school, oldest first,
+ * one at a time per worker and never more than max_concurrent_jobs at once.
  *
  *   php bin/worker.php                       run forever (systemd service), sleeping 5 s when idle
  *   php bin/worker.php --once                run queued jobs, then exit (cron, every minute)
@@ -13,7 +14,7 @@ declare(strict_types=1);
 
 use App\Core\Config;
 use App\Core\Db;
-use App\Data\JobRepository;
+use App\Data\JobQueue;
 use App\Data\SettingsRepository;
 use App\Services\JobRunner;
 
@@ -38,9 +39,9 @@ if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
 
 $say = fn (string $line) => print('[' . date('Y-m-d H:i:s') . "] {$line}" . PHP_EOL);
 $pdo = Db::pdo();
-$jobs = new JobRepository($pdo);
+$jobs = new JobQueue($pdo);
 $settings = new SettingsRepository($pdo);
-$runner = new JobRunner($pdo, $say);
+$runner = new JobRunner($pdo, fn (string $line) => print($line . PHP_EOL));   // runner lines are already time-stamped
 
 $recovered = $jobs->recoverStale();
 if ($recovered > 0) {
@@ -62,7 +63,13 @@ while ($done < $maxJobs) {
     if ($status !== null) {
         $done++;
         $say("Job {$jobId} {$status}.");
+        continue;
     }
+    // Not claimed: another process took it, or max_concurrent_jobs runs are going. Wait, do not spin.
+    if ($once) {
+        break;
+    }
+    sleep(5);
 }
 
 $settings->set('worker_heartbeat', date('Y-m-d H:i:s'));

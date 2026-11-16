@@ -50,7 +50,7 @@ foreach ($files as $file) {
         } catch (Throwable $ex) {
             $failed++;
             $failures[] = "{$class}::{$method}\n    " . get_class($ex) . ': ' . $ex->getMessage()
-                . "\n    at " . $ex->getFile() . ':' . $ex->getLine();
+                . "\n    at " . $ex->getFile() . ':' . $ex->getLine() . testLine($ex);
             echo "  FAIL  {$method}\n";
         } finally {
             try {
@@ -69,3 +69,14 @@ foreach ($failures as $failure) {
 }
 echo "{$passed} passed, {$failed} failed, {$skipped} skipped in {$seconds}s\n";
 exit($failed === 0 ? 0 : 1);
+
+/** The line in the test file that failed (assertions throw from TestCase). */
+function testLine(Throwable $ex): string
+{
+    foreach ($ex->getTrace() as $frame) {
+        if (isset($frame['file']) && str_ends_with($frame['file'], 'Test.php')) {
+            return "\n    in " . basename($frame['file']) . ':' . $frame['line'];
+        }
+    }
+    return '';
+}

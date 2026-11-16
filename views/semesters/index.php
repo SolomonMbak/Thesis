@@ -8,22 +8,24 @@
 use App\Data\SemesterRepository;
 ?>
 <h1>Semesters</h1>
-<p class="muted">Lecturers, groups, rooms and periods are shared by all semesters. Courses belong to one semester.
-  Only the active semester is used for building sessions and generating timetables.</p>
+<p class="page-intro">Rooms, levels, lecturers and periods are shared by all semesters. Courses belong to one semester.
+  Everyone in the school works on the active semester; at the start of a new one, create it, set it active and copy last semester's courses into it.</p>
 
 <?php if (!$semesters): ?>
-  <div class="empty-state panel">No semesters yet. Create the first one below; it becomes active automatically.</div>
+  <div class="empty-state panel"><p>No semesters yet. Create the first one below; it becomes active automatically.</p></div>
 <?php else: ?>
   <div class="table-wrap">
-  <table class="table">
-    <thead><tr><th scope="col">Semester</th><th scope="col">Courses</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+  <table class="table table-stack">
+    <thead><tr><th scope="col">Semester</th><th scope="col">Courses</th><th scope="col">Teaching dates</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
     <tbody>
     <?php foreach ($semesters as $s): ?>
       <tr>
-        <td><?= e(SemesterRepository::label($s)) ?></td>
-        <td><?= e($s['course_count']) ?></td>
-        <td><?= $s['is_active'] ? '<span class="tag tag-success">Active</span>' : '' ?></td>
+        <td data-label="Semester"><?= e(SemesterRepository::label($s)) ?></td>
+        <td data-label="Courses"><?= e($s['course_count']) ?></td>
+        <td data-label="Teaching dates"><?= $s['start_date'] ? e(date('j M Y', strtotime($s['start_date'])) . ' to ' . date('j M Y', strtotime($s['end_date']))) : '<span class="muted">Not set</span>' ?></td>
+        <td data-label="Status"><?= $s['is_active'] ? '<span class="tag tag-success">Active</span>' : '' ?></td>
         <td class="actions">
+          <a class="btn btn-small" href="<?= e(url('semesters/calendar', ['id' => $s['id']])) ?>">Dates and holidays</a>
           <?php if (!$s['is_active']): ?>
             <form method="post" action="<?= e(url('semesters/activate')) ?>" class="inline-form">
               <?= $csrf->field() ?>
@@ -57,7 +59,7 @@ use App\Data\SemesterRepository;
 
 <section class="panel" aria-labelledby="new-sem">
   <h2 id="new-sem">Create a semester</h2>
-  <form method="post" action="<?= e(url('semesters/store')) ?>">
+  <form method="post" action="<?= e(url('semesters/store')) ?>" novalidate>
     <?= $csrf->field() ?>
     <div class="form-grid">
       <?= $this->partial('partials/field', ['name' => 'session_label', 'label' => 'Session', 'value' => $old['session_label'],

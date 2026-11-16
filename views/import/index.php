@@ -7,10 +7,11 @@
  * @var string $resultType
  */
 ?>
-<h1>Import CSV</h1>
-<p class="muted">Import in this order: groups, rooms, lecturers, then courses and availability (they refer to the
-  others). Each file must be CSV (UTF-8), at most 2 MB, with the template's header row. Every row is checked first;
-  nothing is saved unless all rows are valid. Existing records with the same code or staff number are updated.</p>
+<h1>Import from spreadsheet</h1>
+<p class="page-intro">Already have your rooms, levels, lecturers or courses in Excel? Download a template below, fill it in, choose
+  <strong>File, Save As, CSV UTF-8</strong> in Excel, then upload it here. Every row is checked first: nothing is saved unless all rows are
+  correct, and each problem is listed with its row number. Records with the same code or staff number are updated, not duplicated.</p>
+<p class="small"><strong>Order:</strong> levels, rooms and lecturers first; then courses and availability, because they refer to the others.</p>
 
 <?php if ($result && !$result['ok']): ?>
   <div class="alert alert-error" role="alert">
@@ -42,14 +43,14 @@
 <section class="panel" aria-labelledby="templates-title">
   <h2 id="templates-title">Templates</h2>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table-stack">
       <thead><tr><th scope="col">Data</th><th scope="col">Columns</th><th scope="col"><span class="visually-hidden">Download</span></th></tr></thead>
       <tbody>
         <?php foreach ($templates as $type => $template): ?>
           <tr>
-            <td><?= e($types[$type]) ?></td>
-            <td><code><?= e(implode(',', $template['columns'])) ?></code></td>
-            <td><a class="btn btn-small" href="<?= e(url('import/template', ['type' => $type])) ?>">Download <?= e($type) ?>.csv</a></td>
+            <td data-label="Data"><?= e($types[$type]) ?></td>
+            <td data-label="Columns"><code><?= e(implode(',', $template['columns'])) ?></code></td>
+            <td class="actions"><a class="btn btn-small" href="<?= e(url('import/template', ['type' => $type])) ?>">Download <?= e($type) ?>.csv</a></td>
           </tr>
         <?php endforeach; ?>
       </tbody>
@@ -57,7 +58,8 @@
   </div>
   <ul class="small muted">
     <li>needs_lab and allow_two_hour_block: 1 for yes, 0 for no.</li>
-    <li>class_size_override: leave blank to use the group size.</li>
+    <li>class_size_override: leave blank to use the size of the level; for practicals in lab groups, the size of one lab group.</li>
+    <li>group_code is the code of a level (for example 100L); lecturer_staff_no is a staff number you already imported.</li>
     <li>availability day: Mon, Tue, Wed, Thu or Fri; start_time like 08:00; status: available, preferred or unavailable.</li>
     <li>room_type: lecture or lab.</li>
   </ul>

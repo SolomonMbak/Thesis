@@ -3,9 +3,11 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Data\TableRepository;
+use App\Data\HelpProgressRepository;
 use App\Data\TimeslotRepository;
 use App\Services\AvailabilityService;
-use PDO;
+use App\Services\SetupGuide;
 
 /**
  * Lecturer availability grid. Clicking a cell cycles available, preferred,
@@ -17,7 +19,9 @@ final class AvailabilityController extends Controller
     public function index(): void
     {
         $pdo = $this->app->db();
-        $lecturers = $pdo->query('SELECT id, title, full_name, staff_no FROM lecturers WHERE is_active = 1 ORDER BY full_name')->fetchAll();
+        $school = $this->school();
+        $lecturers = (new TableRepository($pdo, $school, 'lecturers'))
+            ->list('SELECT t.id, t.title, t.full_name, t.staff_no FROM lecturers t', ['t.is_active = 1'], [], 't.full_name');
         $selectedId = (int) $this->app->request->query('lecturer', $lecturers[0]['id'] ?? 0);
         $selected = null;
         foreach ($lecturers as $lecturer) {
@@ -25,14 +29,15 @@ final class AvailabilityController extends Controller
                 $selected = $lecturer;
             }
         }
-        $grid = (new TimeslotRepository($pdo))->grid();
+        $service = new AvailabilityService($pdo, $school);
         $this->render('availability/index', [
             'title' => 'Lecturer availability',
             'lecturers' => $lecturers,
             'selected' => $selected,
-            'statuses' => $selected ? (new AvailabilityService($pdo))->forLecturer((int) $selected['id']) : [],
-            'grid' => $grid,
-            'summary' => $this->summary(),
+            'statuses' => $selected ? $service->forLecturer((int) $selected['id']) : [],
+            'grid' => (new TimeslotRepository($pdo, $school))->grid(),
+            'summary' => $service->summary(),
+            'skipped' => HelpProgressRepository::anyoneDid($pdo, $school, SetupGuide::SKIP_AVAILABILITY),
         ]);
     }
 
@@ -41,7 +46,7 @@ final class AvailabilityController extends Controller
         $lecturerId = (int) $this->app->request->input('lecturer', 0);
         $timeslotId = (int) $this->app->request->input('timeslot', 0);
         try {
-            $status = (new AvailabilityService($this->app->db()))->cycle($lecturerId, $timeslotId);
+            $status = (new AvailabilityService($this->app->db(), $this->school()))->cycle($lecturerId, $timeslotId);
         } catch (\InvalidArgumentException $ex) {
             $this->app->flash->error($ex->getMessage());
             $this->redirect('availability');
@@ -57,21 +62,20 @@ final class AvailabilityController extends Controller
         $value = (int) ($scope === 'day' ? $req->input('day', 0) : $req->input('period_no', 0));
         $status = (string) $req->input('status', '');
         if (!in_array($status, AvailabilityService::STATUSES, true) || $value <= 0) {
-            $this->app->flash->error('Choose a day or period and a status.');
+            $this->app->flash->error('Choose a day or a period, and a status.');
             $this->redirect('availability');
         }
-        $count = (new AvailabilityService($this->app->db()))->bulk($scope, $value, $status);
+        $count = (new AvailabilityService($this->app->db(), $this->school()))->bulk($scope, $value, $status);
         $this->app->log('availability.bulk', null, null, ['scope' => $scope, 'value' => $value, 'status' => $status]);
         $this->app->flash->success("{$count} cells set to {$status} for all active lecturers.");
         $this->redirect('availability', ['lecturer' => (int) $req->input('lecturer', 0)]);
     }
 
-    /** Count of preferred and unavailable periods per lecturer. */
-    private function summary(): array
+    /** "Skip for now" on Setup Guide step 6. */
+    public function skip(): void
     {
-        return $this->app->db()->query(
-            "SELECT lecturer_id, SUM(status = 'preferred') AS preferred, SUM(status = 'unavailable') AS unavailable
-             FROM lecturer_availability GROUP BY lecturer_id"
-        )->fetchAll(PDO::FETCH_UNIQUE);
+        (new HelpProgressRepository($this->app->db(), $this->school(), (int) $this->app->auth()->id()))->mark(SetupGuide::SKIP_AVAILABILITY);
+        $this->app->flash->info('Availability skipped for now. Every lecturer counts as available at every open period. You can come back to it at any time.');
+        $this->redirect('setup');
     }
 }

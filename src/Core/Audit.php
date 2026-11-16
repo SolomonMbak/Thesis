@@ -8,6 +8,8 @@ use PDO;
 /**
  * Records who did what, for the audit log viewer.
  * Action names use "area.verb", e.g. course.update, job.start, auth.login.
+ * Entries carry the school they belong to; platform events (installation,
+ * backups, sign-in failures) have none.
  */
 final class Audit
 {
@@ -21,14 +23,16 @@ final class Audit
         ?string $entity = null,
         ?int $entityId = null,
         array $details = [],
-        ?string $ip = null
+        ?string $ip = null,
+        ?int $schoolId = null
     ): void {
         try {
             $stmt = $this->pdo->prepare(
-                'INSERT INTO audit_log (user_id, action, entity, entity_id, details, ip)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO audit_log (school_id, user_id, action, entity, entity_id, details, ip)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
+                $schoolId,
                 $userId,
                 $action,
                 $entity,

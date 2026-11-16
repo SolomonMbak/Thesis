@@ -1,14 +1,17 @@
 <?php
 /**
  * GET api/progress.php?job=ID&after=G
- * Live progress for the Generate page (BUILD_SPEC section 9):
- * {status, generation, max_generations, best_penalty, hard, soft, elapsed_ms, points: [{g, p, h}]}
+ * Live progress for the run page (BUILD_SPEC section 9):
+ * {status, generation, max_generations, best_penalty, hard, soft, elapsed_ms, queue_position, points: [{g, p, h, a}]}
+ * (a = average penalty of the population in that generation)
  * Only rows after generation G are returned, so polling stays cheap.
+ * The job must belong to the user's current school; any other id answers 404.
  */
 declare(strict_types=1);
 
 use App\Core\Api;
 use App\Core\Response;
+use App\Data\JobQueue;
 use App\Data\JobRepository;
 
 require dirname(__DIR__, 2) . '/src/bootstrap.php';
@@ -17,7 +20,7 @@ $app = Api::boot('GET');
 $jobId = (int) $app->request->query('job', 0);
 $after = (int) $app->request->query('after', -1);
 
-$jobs = new JobRepository($app->db());
+$jobs = new JobRepository($app->db(), $app->school());
 $job = $jobs->find($jobId);
 if (!$job) {
     Response::json(['error' => 'That run does not exist.'], 404);
@@ -39,10 +42,12 @@ Response::json([
     'soft' => $job['soft_penalty'] !== null ? (int) $job['soft_penalty'] : null,
     'elapsed_ms' => $elapsed,
     'first_feasible' => $job['first_feasible_generation'] !== null ? (int) $job['first_feasible_generation'] : null,
+    'queue_position' => $job['status'] === 'queued' ? (new JobQueue($app->db()))->position($jobId) : null,
     'notes' => $job['notes'],
     'points' => array_map(fn ($r) => [
         'g' => (int) $r['generation'],
         'p' => (int) $r['best_penalty'],
         'h' => (int) $r['hard_violations'],
+        'a' => round((float) $r['avg_penalty'], 1),   // average penalty of the whole population
     ], $rows),
 ]);

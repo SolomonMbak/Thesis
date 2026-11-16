@@ -6,20 +6,21 @@ namespace App\Core;
 use PDO;
 
 /**
- * Sign-in, sign-out and role checks.
+ * Sign-in and sign-out. The signed-in user is re-read from the database on
+ * every request, so a deactivated account takes effect immediately.
  *
- * Roles: admin (everything) and officer (data, generation, reports).
- * The signed-in user is re-read from the database on every request, so a
- * deactivated account or a changed role takes effect immediately.
+ * Roles belong to school memberships (owner, admin, officer, viewer) and are
+ * resolved by App::school(); this class only knows whether someone is
+ * signed in, whether they are a platform administrator, and whether their
+ * email has been verified.
  */
 final class Auth
 {
-    public const ROLE_ADMIN = 'admin';
-    public const ROLE_OFFICER = 'officer';
     public const MIN_PASSWORD_LENGTH = 10;
+    /** Unverified accounts may use the app for this long after sign-up (BUILD_SPEC section 2). */
+    public const VERIFY_GRACE_DAYS = 7;
 
     private const SESSION_KEY = '_user_id';
-    private const ROLE_KEY = '_user_role';
     /** Hash of a random string nobody knows; used only to equalise timing. */
     private const DUMMY_HASH = '$2y$12$UTvbRMQ5NdgZX6NMGLdNPe7Nlv8PCx/y6VxZxIbQfFQMaeUjYt35O';
 
@@ -68,13 +69,31 @@ final class Auth
         $this->upgradeHashIfNeeded((int) $user['id'], $password, $user['password_hash']);
         $this->pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
 
+        $this->startSession($user);
+        $this->audit->log((int) $user['id'], 'auth.login', 'user', (int) $user['id'], [], $ip, (int) ($user['last_school_id'] ?? 0) ?: null);
+        return null;
+    }
+
+    /** Sign in a user whose identity was just proven another way (sign-up, accepted invitation). */
+    public function loginAs(int $userId): void
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if ($user) {
+            $this->pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([$userId]);
+            $this->startSession($user);
+        }
+    }
+
+    private function startSession(array $user): void
+    {
         Session::regenerate();
+        // A new sign-in starts with no school chosen; App::school() picks the last one used.
+        unset($this->session['_school_id'], $this->session['_school_role']);
         $this->session[self::SESSION_KEY] = (int) $user['id'];
-        $this->session[self::ROLE_KEY] = $user['role'];
         $this->user = $user;
         $this->loaded = true;
-        $this->audit->log((int) $user['id'], 'auth.login', 'user', (int) $user['id'], [], $ip);
-        return null;
     }
 
     public function logout(string $ip): void
@@ -103,11 +122,7 @@ final class Auth
         $stmt->execute([$id]);
         $this->user = $stmt->fetch() ?: null;
         if ($this->user === null) {
-            unset($this->session[self::SESSION_KEY], $this->session[self::ROLE_KEY]);
-        } elseif (($this->session[self::ROLE_KEY] ?? null) !== $this->user['role']) {
-            // Role changed by an admin since sign-in: new session ID (spec section 13).
-            Session::regenerate();
-            $this->session[self::ROLE_KEY] = $this->user['role'];
+            unset($this->session[self::SESSION_KEY]);
         }
         return $this->user;
     }
@@ -123,19 +138,43 @@ final class Auth
         return $this->user() !== null;
     }
 
-    public function isAdmin(): bool
+    /** Manages the installation (schools, platform settings, health, backups); not a member of every school. */
+    public function isPlatformAdmin(): bool
     {
-        return ($this->user()['role'] ?? null) === self::ROLE_ADMIN;
+        return (int) ($this->user()['is_platform_admin'] ?? 0) === 1;
     }
 
-    /** Admins may do everything an officer can. */
-    public function hasRole(string $role): bool
+    public function isVerified(): bool
     {
-        $current = $this->user()['role'] ?? null;
-        if ($current === null) {
+        return !empty($this->user()['email_verified_at']);
+    }
+
+    /** Unverified and past the grace period: must verify the email before going on. */
+    public function mustVerify(): bool
+    {
+        $user = $this->user();
+        if ($user === null || $this->isVerified()) {
             return false;
         }
-        return $current === self::ROLE_ADMIN || $current === $role;
+        return strtotime((string) $user['created_at']) < time() - self::VERIFY_GRACE_DAYS * 86400;
+    }
+
+    /** Days left to verify, for the reminder banner (0 when overdue, null when verified). */
+    public function verifyDaysLeft(): ?int
+    {
+        $user = $this->user();
+        if ($user === null || $this->isVerified()) {
+            return null;
+        }
+        $deadline = strtotime((string) $user['created_at']) + self::VERIFY_GRACE_DAYS * 86400;
+        return max(0, (int) ceil(($deadline - time()) / 86400));
+    }
+
+    /** Forget the cached user so the next call re-reads it (after a profile change). */
+    public function refresh(): void
+    {
+        $this->loaded = false;
+        $this->user = null;
     }
 
     public static function hashPassword(string $password): string
