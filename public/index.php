@@ -26,7 +26,13 @@ header('Cache-Control: no-store');
 
 $expired = Session::start();
 $app = new App(Request::fromGlobals(), $_SESSION);
-if ($expired) {
+try {
+    // "Keep me signed in": a session that ended is started again from the cookie.
+    $restored = $app->auth()->restoreFromCookie();
+} catch (PDOException $ex) {
+    $restored = false;   // the database error is shown by the page itself below
+}
+if ($expired && !$restored) {
     $app->flash->info('You were signed out after a period of inactivity. Please sign in again.');
 }
 

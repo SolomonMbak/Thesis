@@ -90,6 +90,7 @@ final class CalendarService
             'prev' => $first->modify('-1 month')->format('Y-m'),
             'next' => $first->modify('+1 month')->format('Y-m'),
             'has_dates' => $start !== null && $end !== null,
+            'span' => self::spanText($semester),
             'teaching_days' => $teaching,
             'closed_days' => $closed,
             'weeks' => $weeks,
@@ -126,6 +127,61 @@ final class CalendarService
         }
         usort($rows, fn ($a, $b) => [$a['date'], $a['start_time'], $a['course_code']] <=> [$b['date'], $b['start_time'], $b['course_code']]);
         return $rows;
+    }
+
+    /**
+     * The last day of teaching for a semester that runs a number of weeks
+     * from $start. A last day on a weekend moves back to the Friday, so the
+     * saved date is always a teaching weekday.
+     */
+    public static function endAfterWeeks(string $start, int $weeks): string
+    {
+        $end = (new \DateTimeImmutable($start))->modify('+' . ($weeks * 7 - 1) . ' days');
+        while ((int) $end->format('N') > 5) {
+            $end = $end->modify('-1 day');
+        }
+        return $end->format('Y-m-d');
+    }
+
+    /**
+     * How long the semester runs: calendar weeks it touches, weekdays in it,
+     * and weekdays left for teaching after the days without teaching.
+     * Null when the semester has no dates.
+     * @return array{weeks:int, weekdays:int, closed:int, teaching_days:int}|null
+     */
+    public static function length(?array $semester, array $closures): ?array
+    {
+        $start = $semester['start_date'] ?? null;
+        $end = $semester['end_date'] ?? null;
+        if (!$start || !$end) {
+            return null;
+        }
+        $from = new \DateTimeImmutable($start);
+        $to = new \DateTimeImmutable($end);
+        $weekdays = $closed = 0;
+        for ($day = $from; $day <= $to; $day = $day->modify('+1 day')) {
+            if ((int) $day->format('N') <= 5) {
+                $weekdays++;
+                $closed += isset($closures[$day->format('Y-m-d')]) ? 1 : 0;
+            }
+        }
+        return [
+            'weeks' => intdiv((int) $from->diff($to)->days + 7, 7),
+            'weekdays' => $weekdays,
+            'closed' => $closed,
+            'teaching_days' => $weekdays - $closed,
+        ];
+    }
+
+    /** One line such as "14 Sep 2026 to 11 Dec 2026 (13 weeks)", or null without dates. */
+    public static function spanText(?array $semester): ?string
+    {
+        $length = self::length($semester, []);
+        if ($length === null) {
+            return null;
+        }
+        return date('j M Y', strtotime($semester['start_date'])) . ' to ' . date('j M Y', strtotime($semester['end_date']))
+            . ' (' . $length['weeks'] . ($length['weeks'] === 1 ? ' week)' : ' weeks)');
     }
 
     /** teaching, closed (holiday), outside (before or after the semester) or no_dates (semester has no dates yet). */

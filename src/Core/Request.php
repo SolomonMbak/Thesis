@@ -15,13 +15,14 @@ final class Request
         private array $get,
         private array $post,
         private array $server,
-        private array $files = []
+        private array $files = [],
+        private array $cookies = []
     ) {
     }
 
     public static function fromGlobals(): self
     {
-        return new self($_GET, $_POST, $_SERVER, $_FILES);
+        return new self($_GET, $_POST, $_SERVER, $_FILES, $_COOKIE);
     }
 
     public function method(): string
@@ -91,6 +92,16 @@ final class Request
     public function file(string $key): ?array
     {
         return $this->files[$key] ?? null;
+    }
+
+    public function cookie(string $name): ?string
+    {
+        return isset($this->cookies[$name]) && is_string($this->cookies[$name]) ? $this->cookies[$name] : null;
+    }
+
+    public function userAgent(): string
+    {
+        return (string) ($this->server['HTTP_USER_AGENT'] ?? '');
     }
 
     public function header(string $name): ?string

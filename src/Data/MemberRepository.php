@@ -52,7 +52,8 @@ final class MemberRepository
     public function list(SchoolContext $school): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT u.id, u.full_name, u.email, u.is_active, u.email_verified_at, u.last_login_at, m.role, m.joined_at
+            "SELECT u.id, u.full_name, u.email, u.is_active, u.email_verified_at, u.last_login_at, u.totp_enabled_at, u.must_change_password,
+                    m.role, m.joined_at
              FROM school_members m JOIN users u ON u.id = m.user_id
              WHERE m.school_id = ? ORDER BY FIELD(m.role, 'owner', 'admin', 'officer', 'viewer'), u.full_name"
         );

@@ -23,8 +23,10 @@ final class AuthController extends Controller
         if ($this->app->auth()->check()) {
             $this->redirect('dashboard');
         }
+        // Opening the sign-in page again starts over, also after the password step of two-step sign-in.
+        $this->app->auth()->cancelSecondStep();
         $this->renderPlain('auth/login', ['title' => 'Sign in', 'email' => '', 'errors' => [], 'signupOpen' => $this->signupOpen(),
-            'invite' => $this->inviteToken((string) $this->app->request->query('invite', ''))]);
+            'remember' => true, 'invite' => $this->inviteToken((string) $this->app->request->query('invite', ''))]);
     }
 
     public function login(): void
@@ -32,26 +34,111 @@ final class AuthController extends Controller
         $request = $this->app->request;
         $email = trim((string) $request->input('email', ''));
         $password = (string) $request->input('password', '');
+        $remember = (string) $request->input('remember', '0') === '1';
 
         $errors = Validator::validate(
             ['email' => $email, 'password' => $password],
             ['email' => 'required|email|maxlen:120', 'password' => 'required|maxlen:200']
         );
         if (!$errors) {
-            $message = $this->app->auth()->attempt($email, $password, $request->ip());
+            $message = $this->app->auth()->attempt($email, $password, $request->ip(), $remember);
+            $invite = $this->inviteToken((string) $request->input('invite', ''));
+            if ($message === null && $this->app->auth()->awaitingSecondStep() !== null) {
+                $this->redirect('auth/two-step', $invite !== '' ? ['invite' => $invite] : []);
+            }
             if ($message === null) {
-                $invite = $this->inviteToken((string) $request->input('invite', ''));
-                if ($invite !== '') {
-                    $this->redirect('invite/accept', ['token' => $invite]);
-                }
-                $this->app->flash->success('Welcome back.');
-                $this->redirect($this->afterSignIn());
+                $this->finishSignIn($invite);
             }
             $errors['form'] = $message;
         }
         http_response_code(422);
         $this->renderPlain('auth/login', ['title' => 'Sign in', 'email' => $email, 'errors' => $errors, 'signupOpen' => $this->signupOpen(),
-            'invite' => $this->inviteToken((string) $request->input('invite', ''))]);
+            'remember' => $remember, 'invite' => $this->inviteToken((string) $request->input('invite', ''))]);
+    }
+
+    /** Second step of two-step sign-in: the code from the authenticator app. */
+    public function showTwoStep(array $errors = []): void
+    {
+        $user = $this->app->auth()->awaitingSecondStep();
+        if ($user === null) {
+            $this->app->flash->info('Please sign in with your email and password first.');
+            $this->redirect('auth/login');
+        }
+        $this->renderPlain('auth/two_step', ['title' => 'Two-step sign-in', 'email' => $user['email'], 'errors' => $errors,
+            'invite' => $this->inviteToken((string) ($this->app->request->query('invite') ?? $this->app->request->input('invite', '')))]);
+    }
+
+    public function twoStep(): void
+    {
+        $code = trim((string) $this->app->request->input('code', ''));
+        if ($code === '') {
+            http_response_code(422);
+            $this->showTwoStep(['code' => 'Type the 6-digit code from your authenticator app.']);
+            return;
+        }
+        $wasRecovery = \App\Data\TwoFactorRepository::looksLikeRecoveryCode($code);
+        $message = $this->app->auth()->verifySecondStep($code, $this->app->request->ip());
+        if ($message !== null) {
+            if ($this->app->auth()->awaitingSecondStep() === null) {
+                $this->app->flash->error($message);
+                $this->redirect('auth/login');
+            }
+            http_response_code(422);
+            $this->showTwoStep(['code' => $message]);
+            return;
+        }
+        if ($wasRecovery) {
+            $left = (new \App\Data\TwoFactorRepository($this->app->db()))->recoveryCodesLeft((int) $this->app->auth()->id());
+            $this->app->flash->info("You signed in with a recovery code; it cannot be used again. {$left} code(s) left. "
+                . 'If your phone is lost, set up two-step sign-in again under Profile.');
+        }
+        $this->finishSignIn($this->inviteToken((string) $this->app->request->input('invite', '')));
+    }
+
+    /** First sign-in of a member added with a temporary password: choose their own. */
+    public function showNewPassword(array $errors = []): void
+    {
+        if (!$this->app->auth()->mustChangePassword()) {
+            $this->redirect('dashboard');
+        }
+        $this->renderPlain('auth/new_password', ['title' => 'Choose your own password', 'errors' => $errors,
+            'name' => $this->app->auth()->user()['full_name']]);
+    }
+
+    public function newPassword(): void
+    {
+        $auth = $this->app->auth();
+        $user = $auth->user();
+        $password = (string) $this->app->request->input('password', '');
+        $errors = Validator::validate(['password' => $password], ['password' => 'required|minlen:' . Auth::MIN_PASSWORD_LENGTH . '|maxlen:200'],
+            ['password' => 'New password']);
+        if (!$errors && $password !== (string) $this->app->request->input('password_confirm', '')) {
+            $errors['password_confirm'] = 'The two passwords do not match.';
+        }
+        if (!$errors && password_verify($password, (string) $user['password_hash'])) {
+            $errors['password'] = 'Choose a password different from the one you were given.';
+        }
+        if ($errors) {
+            http_response_code(422);
+            $this->showNewPassword($errors);
+            return;
+        }
+        (new UserRepository($this->app->db()))->setPassword((int) $user['id'], $password);
+        \App\Core\Session::regenerate();
+        $auth->refresh();
+        $this->app->audit()->log((int) $user['id'], 'auth.change_password', 'user', (int) $user['id'], ['first_sign_in' => true], $this->app->request->ip());
+        $this->app->flash->success('Your password is saved. From now on, sign in with it.');
+        $this->redirect($this->afterSignIn());
+    }
+
+    /** Signed in: go on to an accepted invitation, or to the right first page. */
+    private function finishSignIn(string $invite): void
+    {
+        if ($invite !== '') {
+            $this->redirect('invite/accept', ['token' => $invite]);
+        }
+        $this->app->flash->success('Welcome back.');
+        $this->redirect($this->app->auth()->mustChangePassword() ? 'auth/new-password' : $this->afterSignIn());
     }
 
     public function logout(): void
@@ -216,6 +303,8 @@ final class AuthController extends Controller
             $users->setPassword((int) $token['user_id'], $password);
             // Opening the emailed link proves the address too.
             $users->markVerified((int) $token['user_id']);
+            // Whoever knew the old password may have kept a browser signed in: end those.
+            $this->app->auth()->forgetAllBrowsers((int) $token['user_id']);
             $this->app->audit()->log((int) $token['user_id'], 'auth.reset_password', 'user', (int) $token['user_id'], [], $this->app->request->ip());
         }
         $this->app->flash->success('Your password has been changed. Sign in with the new password.');

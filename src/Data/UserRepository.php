@@ -39,9 +39,14 @@ final class UserRepository
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function setPassword(int $id, string $password): void
+    /**
+     * Set a password. A temporary one (given by a school administrator) must
+     * be replaced by the user at their next sign-in.
+     */
+    public function setPassword(int $id, string $password, bool $temporary = false): void
     {
-        $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([Auth::hashPassword($password), $id]);
+        $this->pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?')
+            ->execute([Auth::hashPassword($password), $temporary ? 1 : 0, $id]);
         $user = $this->find($id);
         if ($user) {
             // A new password also clears failed sign-in attempts, so the user is not still locked out.

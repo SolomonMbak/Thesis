@@ -58,7 +58,7 @@ School level (a user can belong to more than one school and switch between them)
 
 Sign-up flow: visitor clicks "Create a school account", enters their name, email, password and school name; the system creates the user, the school (with a unique slug), the owner membership, default settings, the 50 default periods and one active semester; sends a verification email; then opens the Setup Guide (section 10.2). Unverified owners can use the app for 7 days, then must verify to continue. Platform admin can turn public sign-up off (invite-only).
 
-Invitations: owner or admin enters an email and a role; the invitee gets a link valid for 7 days; if they have no account they set a password on acceptance.
+Invitations: owner or admin enters an email and a role; the invitee gets a link valid for 7 days; if they have no account they set a password on acceptance. Owners and admins can also add a person directly with a temporary password (section 13.3).
 
 ## 3. Folder layout
 
@@ -657,6 +657,10 @@ dates of a month (added 2026-11-16 at the developer's request).
   without teaching, such as public holidays and breaks (table `school_closures`: `school_id`, `semester_id`, `closed_on`, `reason`,
   unique per school, semester and date). Edited by owners and administrators under Manage, Semesters, Dates and holidays; a range of
   dates adds every weekday in it.
+- The length is set either as a last day of teaching or as a number of weeks (1 to 52) counted from the first day; with weeks the
+  last day is first day + 7 x weeks - 1 days, moved back to the Friday when it falls on a weekend. Only the two dates are stored.
+  The dates are optional and can also be given when a semester is created. The dates page, the semester list and the month view show
+  the length (weeks, and teaching days after holidays). Clearing both fields removes the dates.
 - Every timetable grid (app and public page) has a **Week / Month** switch. The month view shows Monday to Friday of each week of
   the month: each day lists that weekday's classes with start and end time; days without teaching show "No classes" and the
   reason; days before or after the semester are shaded; days of other months are greyed. Previous and next month links. Without
@@ -787,6 +791,30 @@ Checks: fresh deployment on a clean VPS and on cPanel following only DEPLOYMENT.
 - Errors: `display_errors = 0` in production; friendly error page; details in logs.
 - Audit log for logins, data changes, job start/stop/publish, settings and user changes, backups.
 - Installer locked after use; `config.local.php` permissions 640 where possible.
+
+### 13.3 Login security (added 2026-11-17 at the developer's request)
+
+- **Keep me signed in.** A checkbox on the sign-in page (ticked by default, with the hint to untick it on a shared computer). When
+  ticked, a token is stored in table `remember_tokens` (selector plus sha256 of the secret half) and in a cookie `tt_remember`
+  (HttpOnly, Secure on HTTPS, SameSite=Lax) that expires `remember_days` (default 30, config) after sign-in and is never extended.
+  The 60-minute idle timeout still ends the PHP session; the next request then signs in again from the cookie. The secret half
+  changes on every use; the previous one is accepted for 2 minutes (parallel requests); any other value deletes the token.
+  Sign-out deletes this browser's token. A password change or reset deletes all of the user's tokens (a change keeps the current
+  browser signed in if it was). Profile lists the browsers and has "Sign out on all browsers".
+- **Two-step sign-in (TOTP, RFC 6238).** Optional for every user, recommended for owners and administrators. Set up under Profile:
+  a QR code (inline SVG, drawn by `App\Core\QrCode`, no outside library) and the key in base32 for typing; confirmed with a code and
+  the password. The key is stored encrypted (`users.totp_secret`, libsodium secretbox or AES-256-GCM) with the server key
+  `app_key` in config.local.php or `storage/keys/app.key` (created on first use, never in backups of the database). Codes: 6 digits,
+  30 seconds, one step of drift either way, each step used at most once (`users.totp_last_step`). Ten one-time recovery codes
+  (sha256 stored) are shown once and can be renewed with the password. After the password, sign-in waits up to 10 minutes for the
+  code; wrong codes are throttled like passwords (5 per 15 minutes). Turning it off needs the password. `bin/reset_2fa.php
+  --email=...` turns it off for a user who lost the phone and the codes. Members and invitations shows "Two-step on" per member.
+  "Keep me signed in" applies only after the second step.
+- **Members added directly.** Besides invitations, owners and administrators can add a person without email: name, email, role
+  (administrator, timetable officer or viewer, never owner) and a temporary password (a random one is suggested). Only for an email
+  with no account yet; existing accounts must be invited so they agree to join. The account is marked verified (the administrator
+  vouches for it) and `users.must_change_password = 1`: after signing in, every page sends them to "Choose your own password"
+  until they choose one different from the temporary one.
 
 ## 14. Deployment
 

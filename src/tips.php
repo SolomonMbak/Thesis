@@ -33,7 +33,7 @@ return [
         'action' => '', 'route' => ''],
     'published' => ['text' => 'The published timetable is what students and staff see. Share the link below; it never changes when you publish a newer run.',
         'action' => '', 'route' => ''],
-    'members' => ['text' => 'Invite colleagues by email and choose what each one may do. Viewers can see timetables but not change anything.',
+    'members' => ['text' => 'Invite colleagues by email, or add them with a temporary password, and choose what each one may do. Viewers can see timetables but not change anything.',
         'action' => '', 'route' => ''],
     'rules' => ['text' => 'Hard rules must never be broken; soft rules are wishes. A weight says how much the genetic algorithm cares about each one.',
         'action' => '', 'route' => ''],

@@ -6,6 +6,7 @@ namespace App\Controllers;
 use App\Core\Validator;
 use App\Data\CalendarRepository;
 use App\Data\SemesterRepository;
+use App\Services\CalendarService;
 
 /**
  * Semesters of the school. One is active at a time; courses belong to a
@@ -19,7 +20,8 @@ final class SemesterController extends Controller
             'title' => 'Semesters',
             'semesters' => $this->semesters()->all(),
             'errors' => $errors,
-            'old' => $old + ['session_label' => SemesterRepository::currentSessionLabel(), 'semester_no' => '1'],
+            'old' => $old + ['session_label' => SemesterRepository::currentSessionLabel(), 'semester_no' => '1',
+                'start_date' => '', 'length_mode' => 'end', 'end_date' => '', 'weeks' => ''],
         ]);
     }
 
@@ -39,6 +41,9 @@ final class SemesterController extends Controller
         if (!$errors && $this->semesters()->exists($in['session_label'], (int) $in['semester_no'])) {
             $errors['session_label'] = 'That semester already exists. Set it as active in the list below instead.';
         }
+        [$dates, $dateErrors, $start, $end] = $this->readDates();
+        $in += $dates;
+        $errors += $dateErrors;
         if ($errors) {
             http_response_code(422);
             $this->index($errors, $in);
@@ -46,6 +51,9 @@ final class SemesterController extends Controller
         }
         $hadActive = $this->semesters()->active() !== null;
         $id = $this->semesters()->create($in['session_label'], (int) $in['semester_no']);
+        if ($start !== null) {
+            (new CalendarRepository($this->app->db(), $this->school()))->setDates($id, $start, $end);
+        }
         $this->app->log('semester.create', 'semester', $id, $in);
         $this->app->flash->success($hadActive
             ? 'Semester created. Set it as active when you are ready to work on it, and copy last semester\'s courses into it if they repeat.'
@@ -85,43 +93,83 @@ final class SemesterController extends Controller
     public function calendar(array $errors = [], array $old = []): void
     {
         $semester = $this->findSemester((int) ($this->app->request->query('id') ?? $this->app->request->input('id', 0)));
+        $calendar = new CalendarRepository($this->app->db(), $this->school());
         $this->render('semesters/calendar', [
             'title' => 'Dates and holidays',
             'semester' => $semester,
-            'closures' => (new CalendarRepository($this->app->db(), $this->school()))->closures((int) $semester['id']),
+            'closures' => $calendar->closures((int) $semester['id']),
+            'length' => CalendarService::length($semester, $calendar->closureMap((int) $semester['id'])),
             'errors' => $errors,
             'old' => $old + ['start_date' => (string) $semester['start_date'], 'end_date' => (string) $semester['end_date'],
-                'closed_on' => '', 'closed_to' => '', 'reason' => ''],
+                'length_mode' => 'end', 'weeks' => '', 'closed_on' => '', 'closed_to' => '', 'reason' => ''],
         ]);
     }
 
     public function saveDates(): void
     {
         $semester = $this->findSemester((int) $this->app->request->input('id', 0));
-        $in = ['start_date' => trim((string) $this->app->request->input('start_date', '')),
-            'end_date' => trim((string) $this->app->request->input('end_date', ''))];
-        $errors = [];
-        foreach ($in as $key => $value) {
-            if ($value !== '' && !self::isDate($value)) {
-                $errors[$key] = 'Enter a date such as 2026-01-12.';
-            }
-        }
-        if (!$errors && ($in['start_date'] === '') !== ($in['end_date'] === '')) {
-            $errors['end_date'] = 'Give both the first and the last day of teaching, or leave both empty.';
-        }
-        if (!$errors && $in['start_date'] !== '' && $in['end_date'] < $in['start_date']) {
-            $errors['end_date'] = 'The last day of teaching must be on or after the first day.';
-        }
+        [$in, $errors, $start, $end] = $this->readDates();
         if ($errors) {
             http_response_code(422);
             $this->calendar($errors, $in);
             return;
         }
-        (new CalendarRepository($this->app->db(), $this->school()))
-            ->setDates((int) $semester['id'], $in['start_date'] ?: null, $in['end_date'] ?: null);
-        $this->app->log('semester.dates', 'semester', (int) $semester['id'], $in);
-        $this->app->flash->success('Semester dates saved. The month view of every timetable now shows these dates.');
+        (new CalendarRepository($this->app->db(), $this->school()))->setDates((int) $semester['id'], $start, $end);
+        $this->app->log('semester.dates', 'semester', (int) $semester['id'], $in + ['saved_end' => $end]);
+        if ($start === null) {
+            $this->app->flash->success('Semester dates removed. The month view shows the weekly timetable on every weekday until you set them again.');
+        } else {
+            $weeks = CalendarService::length(['start_date' => $start, 'end_date' => $end], [])['weeks'];
+            $this->app->flash->success("Semester dates saved: {$weeks} week(s), last day of teaching "
+                . date('l j F Y', strtotime($end)) . '. The month view of every timetable now shows these dates.');
+        }
         $this->redirect('semesters/calendar', ['id' => $semester['id']]);
+    }
+
+    /**
+     * Read the teaching dates from the form: a first day plus either a last
+     * day or a number of weeks. All empty means "no dates" (allowed when
+     * creating a semester).
+     * @return array{0:array, 1:array, 2:?string, 3:?string} [input, errors, start, end]
+     */
+    private function readDates(): array
+    {
+        $request = $this->app->request;
+        $in = [
+            'start_date' => trim((string) $request->input('start_date', '')),
+            'length_mode' => $request->input('length_mode', 'end') === 'weeks' ? 'weeks' : 'end',
+            'end_date' => trim((string) $request->input('end_date', '')),
+            'weeks' => trim((string) $request->input('weeks', '')),
+        ];
+        $usesWeeks = $in['length_mode'] === 'weeks';
+        $lengthGiven = $usesWeeks ? $in['weeks'] !== '' : $in['end_date'] !== '';
+        if ($in['start_date'] === '' && !$lengthGiven) {
+            return [$in, [], null, null];
+        }
+        $errors = [];
+        if (!self::isDate($in['start_date'])) {
+            $errors['start_date'] = $in['start_date'] === '' ? 'Enter the first day of teaching as well.' : 'Enter a date such as 2026-01-12.';
+        }
+        if ($usesWeeks) {
+            if (!preg_match('/^\d{1,2}$/', $in['weeks']) || (int) $in['weeks'] < 1 || (int) $in['weeks'] > 52) {
+                $errors['weeks'] = 'Enter a whole number of weeks from 1 to 52, for example 13.';
+            }
+        } elseif ($in['end_date'] === '') {
+            $errors['end_date'] = 'Enter the last day of teaching, or choose "For a number of weeks".';
+        } elseif (!self::isDate($in['end_date'])) {
+            $errors['end_date'] = 'Enter a date such as 2026-04-30.';
+        }
+        if ($errors) {
+            return [$in, $errors, null, null];
+        }
+        $end = $usesWeeks ? CalendarService::endAfterWeeks($in['start_date'], (int) $in['weeks']) : $in['end_date'];
+        if ($end < $in['start_date']) {
+            return [$in, [$usesWeeks ? 'weeks' : 'end_date' => 'The last day of teaching must be on or after the first day.'], null, null];
+        }
+        if ((strtotime($end) - strtotime($in['start_date'])) > 366 * 86400) {
+            return [$in, ['end_date' => 'A semester can last at most one year. Check the year of the dates.'], null, null];
+        }
+        return [$in, [], $in['start_date'], $end];
     }
 
     /** Add one day without teaching, or every weekday of a range (for example a mid-semester break). */

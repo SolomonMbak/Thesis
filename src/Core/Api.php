@@ -30,6 +30,7 @@ final class Api
             Response::json(['error' => "Use {$method} for this endpoint."], 405);
         }
         try {
+            $app->auth()->restoreFromCookie();
             $signedIn = $app->auth()->check();
             $school = $signedIn && $role !== Router::AUTH ? $app->school() : null;
         } catch (\PDOException $ex) {

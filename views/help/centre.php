@@ -128,7 +128,8 @@ $link = fn (string $route, string $label): string => $signedIn ? '<a href="' . e
 <section class="panel help-section" id="team" aria-labelledby="team-title">
   <h2 id="team-title">Inviting your team</h2>
   <p data-search-item>Owners and administrators invite people under <?= $link('members', 'Members and invitations') ?>. The invitation email has a link
-    that works for 7 days; someone without an account chooses a password when they accept.</p>
+    that works for 7 days; someone without an account chooses a password when they accept. When email is not set up, or the person is with
+    you, use "Add someone without email": you choose their role and a temporary password, and they must choose their own at the first sign-in.</p>
   <div class="table-wrap">
     <table class="table table-stack">
       <thead><tr><th scope="col">Role</th><th scope="col">Can do</th></tr></thead>
@@ -160,6 +161,14 @@ $link = fn (string $route, string $label): string => $signedIn ? '<a href="' . e
       <dd>An administrator creates it under Manage, Semesters, sets it active and can copy last semester's courses into it.</dd></div>
     <div data-search-item><dt>I forgot my password.</dt>
       <dd>On the sign-in page, choose "Forgot your password?" and we email you a link that works for 1 hour.</dd></div>
+    <div data-search-item><dt>How long do I stay signed in?</dt>
+      <dd>60 minutes without activity, unless you tick "Keep me signed in" when you sign in: then up to 30 days on that browser, or until you
+        press Sign out. Do not tick it on a shared computer. Under Profile you can sign out on all browsers at once.</dd></div>
+    <div data-search-item><dt>What is two-step sign-in?</dt>
+      <dd>An extra check after your password: a 6-digit code from an authenticator app on your phone. Turn it on under Profile, Two-step
+        sign-in. Keep the recovery codes you are given; each lets you sign in once without your phone.</dd></div>
+    <div data-search-item><dt>I lost my phone and my recovery codes.</dt>
+      <dd>Ask the platform administrator to turn two-step sign-in off for your account. Then sign in with your password and set it up again.</dd></div>
     <div data-search-item><dt>Can other schools see our data?</dt>
       <dd>No. Each school's data is separate. Only members you invite can open your workspace; everyone else sees only what you publish.</dd></div>
     <div data-search-item><dt>How do I switch between light and dark?</dt>

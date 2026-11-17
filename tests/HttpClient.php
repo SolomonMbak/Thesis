@@ -73,6 +73,23 @@ final class HttpClient
             ['X-CSRF-Token: ' . $this->csrf('/index.php?r=help')]);
     }
 
+    /** A cookie this browser holds, or null. */
+    public function cookie(string $name): ?string
+    {
+        return $this->cookies[$name] ?? null;
+    }
+
+    /** Forget a cookie, as when a session ends or the browser is closed. */
+    public function dropCookie(string $name): void
+    {
+        unset($this->cookies[$name]);
+    }
+
+    public function setCookie(string $name, string $value): void
+    {
+        $this->cookies[$name] = $value;
+    }
+
     public function login(string $email, string $password): void
     {
         $response = $this->post('/index.php?r=auth/login', ['email' => $email, 'password' => $password], '/index.php?r=auth/login');

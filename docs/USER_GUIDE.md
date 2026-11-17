@@ -80,11 +80,15 @@ and the seed that repeats it).
 ## Month view, dates and holidays
 
 The genetic algorithm makes one week that repeats all semester. To see it on real dates, an administrator sets
-the first and last day of teaching and the days without teaching (public holidays, breaks) under *Manage,
-Semesters, Dates and holidays*. Then every timetable, in the app and on the public page, has a **Week / Month**
+the first day of teaching and how long teaching lasts, either **until a date** or **for a number of weeks** (for example 13;
+the last day is worked out for you), and the days without teaching (public holidays, breaks) under *Manage, Semesters, Dates
+and holidays*. You can also give the dates when you create a semester. The page then shows the length, for example "13 weeks,
+64 teaching days". Then every timetable, in the app and on the public page, has a **Week / Month**
 switch: the month view shows each weekday's classes on its date, marks holidays with their reason, and shades
 days outside the semester. **Export with dates (CSV)** lists every class on its real date for the whole
-semester, holidays left out. Holidays do not move classes; they only remove those days from the calendar.
+semester, holidays left out. Holidays do not move classes; they only remove those days from the calendar. The dates are
+optional; to remove them, empty the fields and save.
+
 ## Importing from a spreadsheet
 
 *School data, Import from spreadsheet.* Download a template, fill it in, choose **File, Save As, CSV UTF-8**
@@ -164,7 +168,10 @@ Untick **Use targeted repair** only to compare with the standard search.
 ## Managing the school (owners and administrators)
 
 - **Members and invitations**: invite people by email with a role; change roles; remove members (they keep
-  their account for other schools). Invitations work for 7 days and can be sent again or withdrawn.
+  their account for other schools). Invitations work for 7 days and can be sent again or withdrawn. Without email,
+  use **Add someone without email**: enter their name, email and role (administrator, timetable officer or viewer),
+  note the temporary password and give it to them in person. At their first sign-in they must choose their own.
+  The list shows who has two-step sign-in on and who has not yet chosen a password.
 - **Semesters**: create the next semester, set it active, and copy last semester's courses into it.
 - **Activity log**: every sign-in, data change, run, publication and settings change in the school.
 - **School settings**: the public link name, the default search settings, deleting old runs (published runs
@@ -173,7 +180,17 @@ Untick **Use targeted repair** only to compare with the standard search.
 ## Your account
 
 Click your name in the top bar for **Profile and theme** (System, Light or Dark), **Change password** and
-**Restart the tour**. Forgot your password? Use "Forgot your password?" on the sign-in page; the emailed
+**Restart the tour**.
+
+- **Keep me signed in.** Ticked on the sign-in page, it keeps you signed in on that browser for up to 30 days, until
+  you press Sign out. Without it you are signed out after 60 minutes without activity. Untick it on shared or public
+  computers. *Profile, Where you stay signed in* lists your browsers and has **Sign out on all browsers**. Changing
+  your password signs out the other browsers.
+- **Two-step sign-in.** Under *Profile, Two-step sign-in*: install an authenticator app (Google Authenticator,
+  Microsoft Authenticator, Authy), scan the QR code (or type the key), and confirm with a code and your password. From
+  then on, signing in asks for the 6-digit code after your password. Keep the 10 recovery codes you are shown; each
+  lets you sign in once without your phone. Recommended for owners and administrators. If you lose both the phone and
+  the codes, the platform administrator can turn it off for you (`php bin/reset_2fa.php --email=...`). Forgot your password? Use "Forgot your password?" on the sign-in page; the emailed
 link works for 1 hour.
 
 ## Experiments for the dissertation (command line)

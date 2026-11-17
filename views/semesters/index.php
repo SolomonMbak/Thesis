@@ -6,6 +6,7 @@
  * @var array $old
  */
 use App\Data\SemesterRepository;
+use App\Services\CalendarService;
 ?>
 <h1>Semesters</h1>
 <p class="page-intro">Rooms, levels, lecturers and periods are shared by all semesters. Courses belong to one semester.
@@ -22,7 +23,7 @@ use App\Data\SemesterRepository;
       <tr>
         <td data-label="Semester"><?= e(SemesterRepository::label($s)) ?></td>
         <td data-label="Courses"><?= e($s['course_count']) ?></td>
-        <td data-label="Teaching dates"><?= $s['start_date'] ? e(date('j M Y', strtotime($s['start_date'])) . ' to ' . date('j M Y', strtotime($s['end_date']))) : '<span class="muted">Not set</span>' ?></td>
+        <td data-label="Teaching dates"><?= $s['start_date'] ? e(CalendarService::spanText($s)) : '<span class="muted">Not set</span>' ?></td>
         <td data-label="Status"><?= $s['is_active'] ? '<span class="tag tag-success">Active</span>' : '' ?></td>
         <td class="actions">
           <a class="btn btn-small" href="<?= e(url('semesters/calendar', ['id' => $s['id']])) ?>">Dates and holidays</a>
@@ -67,6 +68,11 @@ use App\Data\SemesterRepository;
       <?= $this->partial('partials/field', ['name' => 'semester_no', 'label' => 'Semester', 'type' => 'select',
           'value' => $old['semester_no'], 'errors' => $errors, 'options' => ['1' => 'First', '2' => 'Second', '3' => 'Third']]) ?>
     </div>
+    <details class="semester-dates"<?= ($old['start_date'] !== '' || isset($errors['start_date']) || isset($errors['end_date']) || isset($errors['weeks'])) ? ' open' : '' ?>>
+      <summary>Teaching dates (optional): when the semester starts and how long it runs</summary>
+      <p class="field-help">Used only by the Month view and the dated export. You can add or change them later under Dates and holidays.</p>
+      <?= $this->partial('partials/semester_dates', ['old' => $old, 'errors' => $errors, 'optional' => true]) ?>
+    </details>
     <button type="submit" class="btn btn-primary">Create semester</button>
   </form>
 </section>

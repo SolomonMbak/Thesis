@@ -9,6 +9,7 @@
 <h3>What the fields mean</h3>
 <dl>
   <dt>Session</dt><dd>Two years with a slash, for example 2025/2026.</dd>
+  <dt>Teaching dates (optional)</dt><dd>When the semester starts and how long it runs, until a date or for a number of weeks. Used by the Month view and the dated export. You can set them later under Dates and holidays.</dd>
 </dl>
 <h3>Common mistakes</h3>
 <ul>

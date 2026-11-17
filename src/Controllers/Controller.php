@@ -170,7 +170,7 @@ abstract class Controller
     {
         $aliases = ['timetables/view' => 'timetable_view', 'timetables/report' => 'timetable_report',
             'timetables/compare' => 'timetable_compare', 'timetables/manual' => 'timetable_manual',
-            'generate/job' => 'generate_job', 'rooms/create' => 'rooms_form', 'rooms/edit' => 'rooms_form',
+            'generate/job' => 'generate_job', 'account/two-step/codes' => 'account_two_step', 'rooms/create' => 'rooms_form', 'rooms/edit' => 'rooms_form',
             'groups/create' => 'groups_form', 'groups/edit' => 'groups_form', 'lecturers/create' => 'lecturers_form',
             'lecturers/edit' => 'lecturers_form', 'courses/create' => 'courses_form', 'courses/edit' => 'courses_form'];
         $candidates = [$aliases[$route] ?? null, str_replace('/', '_', $route), explode('/', $route)[0]];

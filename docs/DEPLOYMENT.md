@@ -326,6 +326,7 @@ holidays and breaks. The timetable itself is one week that repeats; these dates 
 2. Upload the new release and extract it over the old folder. **Keep** `config/config.local.php`
    and the `storage/` folder; the release contains neither, so extracting does not overwrite them.
 3. Apply database updates: open **Platform, Health** and press **Apply updates**, or run `php bin/migrate.php`.
+   Updates that need it are listed there, for example `002_login_security.sql` (two-step sign-in and "Keep me signed in").
 4. On a VPS with the worker service, restart it: `sudo systemctl restart timetable-worker`.
 
 ## 7. Backups and restoring
@@ -343,6 +344,13 @@ gunzip -c backup_YYYYMMDD_HHMMSS.sql.gz | mysql -u USER -p DATABASE
 On cPanel: unzip the file on your computer and import the `.sql` file in **phpMyAdmin**
 (select the empty database, then **Import**).
 
+**Also keep a copy of the server key** `storage/keys/app.key` (or set `app_key` in
+`config.local.php`, see section 8). It encrypts the two-step sign-in keys of users and is
+deliberately not inside the database backups, so a stolen backup alone cannot make sign-in
+codes. If you restore onto a new server without it, users with two-step sign-in must use a
+recovery code, or you turn it off for them with `php bin/reset_2fa.php --email=...`.
+Keep the key file readable by the web server only (permissions 600 or 640).
+
 ## 8. Configuration reference
 
 The installer writes `config/config.local.php`. You can edit it by hand; only the keys
@@ -357,7 +365,10 @@ you want to change need to be there.
 | `php_cli_path` | PHP command line program (the setting on the settings page wins) | php |
 | `memory_limit_cli` | Memory limit for timetable runs | 512M |
 | `session_idle_minutes` | Sign out after this many idle minutes | 60 |
-| `login_max_failures`, `login_window_minutes` | Sign-in throttling | 5, 15 |
+| `login_max_failures`, `login_window_minutes` | Sign-in throttling (also used for two-step codes) | 5, 15 |
+| `remember_days` | How long "Keep me signed in" lasts after sign-in (1 to 90) | 30 |
+| `remember_cookie` | Name of the "Keep me signed in" cookie | tt_remember |
+| `app_key` | Base64 of 32 random bytes that encrypts two-step sign-in keys. If blank, `storage/keys/app.key` is created on first use. Generate one with `php -r "echo base64_encode(random_bytes(32));"` | (blank) |
 | `test_db_name` | Separate empty database for the tests (development only) | (blank) |
 
 Settings changed in the app are stored in the database, not in this file: platform settings (platform name,

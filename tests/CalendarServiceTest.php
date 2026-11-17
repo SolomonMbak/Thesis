@@ -88,4 +88,27 @@ final class CalendarServiceTest extends TestCase
         $this->assertSame([2026, 1], CalendarService::pickMonth(null, $semester, strtotime('2026-11-16')), 'Outside the semester: its first month.');
         $this->assertSame([2026, 1], CalendarService::pickMonth('2026-13', $semester, strtotime('2026-11-16')), 'A bad month is ignored.');
     }
+    public function testANumberOfWeeksGivesTheLastDayOfTeaching(): void
+    {
+        // Monday 14 Sep 2026 for 13 weeks: day 91 is Sunday 13 Dec, so the last day moves back to Friday 11 Dec.
+        $this->assertSame('2026-12-11', CalendarService::endAfterWeeks('2026-09-14', 13));
+        $this->assertSame('2026-09-18', CalendarService::endAfterWeeks('2026-09-14', 1));
+        // Starting on a Wednesday, 2 weeks end on the Tuesday 13 days later (a weekday, so unchanged).
+        $this->assertSame('2026-09-29', CalendarService::endAfterWeeks('2026-09-16', 2));
+    }
+
+    public function testLengthCountsWeeksAndTeachingDays(): void
+    {
+        $semester = ['start_date' => '2026-09-14', 'end_date' => '2026-12-11'];
+        $length = CalendarService::length($semester, ['2026-10-01' => 'Independence Day', '2026-10-03' => 'Saturday, ignored']);
+        $this->assertSame(13, $length['weeks']);
+        $this->assertSame(65, $length['weekdays'], '13 weeks of Monday to Friday.');
+        $this->assertSame(1, $length['closed'], 'Only weekday holidays count.');
+        $this->assertSame(64, $length['teaching_days']);
+        $this->assertSame(13, CalendarService::length(['start_date' => '2026-09-14', 'end_date' => CalendarService::endAfterWeeks('2026-09-14', 13)], [])['weeks'],
+            'A number of weeks reads back as the same number.');
+        $this->assertSame(null, CalendarService::length(['start_date' => null, 'end_date' => null], []));
+        $this->assertSame('14 Sep 2026 to 11 Dec 2026 (13 weeks)', CalendarService::spanText($semester));
+        $this->assertSame('14 Sep 2026 to 18 Sep 2026 (1 week)', CalendarService::spanText(['start_date' => '2026-09-14', 'end_date' => '2026-09-18']));
+    }
 }

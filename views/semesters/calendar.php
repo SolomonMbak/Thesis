@@ -5,6 +5,7 @@
  * @var array $closures
  * @var array $errors
  * @var array $old
+ * @var array|null $length  CalendarService::length()
  */
 use App\Data\SemesterRepository;
 ?>
@@ -17,13 +18,16 @@ use App\Data\SemesterRepository;
   <?= $csrf->field() ?>
   <input type="hidden" name="id" value="<?= e($semester['id']) ?>">
   <h2>Teaching dates</h2>
-  <div class="form-grid">
-    <?= $this->partial('partials/field', ['name' => 'start_date', 'label' => 'First day of teaching', 'type' => 'date', 'value' => $old['start_date'],
-        'errors' => $errors, 'help' => 'For example the Monday lectures begin.']) ?>
-    <?= $this->partial('partials/field', ['name' => 'end_date', 'label' => 'Last day of teaching', 'type' => 'date', 'value' => $old['end_date'],
-        'errors' => $errors, 'help' => 'Usually the Friday before examinations.']) ?>
-  </div>
+  <?php if ($length): ?>
+    <p class="alert alert-success" data-length-summary>Teaching runs for <strong><?= e($length['weeks']) ?> week(s)</strong>, from
+      <?= e(date('l j F Y', strtotime($semester['start_date']))) ?> to <?= e(date('l j F Y', strtotime($semester['end_date']))) ?>:
+      <?= e($length['teaching_days']) ?> teaching day(s)<?= $length['closed'] ? ' after ' . e($length['closed']) . ' day(s) without teaching' : '' ?>.</p>
+  <?php else: ?>
+    <p class="alert alert-info">No dates yet. They are optional: without them the Month view shows the weekly timetable on every weekday.</p>
+  <?php endif; ?>
+  <?= $this->partial('partials/semester_dates', ['old' => $old, 'errors' => $errors]) ?>
   <button type="submit" class="btn btn-primary">Save dates</button>
+  <p class="field-help">To remove the dates, empty the fields and save.</p>
 </form>
 
 <form method="post" action="<?= e(url('semesters/closure-add')) ?>" class="panel" novalidate>

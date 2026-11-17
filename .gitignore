@@ -3,6 +3,7 @@ storage/logs/*
 storage/exports/*
 storage/backups/*
 storage/cache/*
+storage/keys/
 storage/installed.lock
 !storage/*/.gitkeep
 /release/

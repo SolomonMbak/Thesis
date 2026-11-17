@@ -358,6 +358,21 @@
     });
   }
 
+  /* Semester dates: show the "last day" or the "number of weeks" field to match the choice. */
+  function setUpLengthChoice() {
+    document.querySelectorAll('[data-length-choice]').forEach(function (choice) {
+      var form = choice.closest('form');
+      var sync = function () {
+        var picked = choice.querySelector('input:checked');
+        form.querySelectorAll('[data-length-for]').forEach(function (box) {
+          box.hidden = !picked || box.getAttribute('data-length-for') !== picked.value;
+        });
+      };
+      choice.addEventListener('change', sync);
+      sync();
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     setUpTheme();
     setUpSidebar();
@@ -369,6 +384,7 @@
     setUpPrintButtons();
     setUpCopyButtons();
     setUpHelpSearch();
+    setUpLengthChoice();
     if (document.querySelector('[data-tour-autostart]')) {
       window.setTimeout(startTour, 300);
     }

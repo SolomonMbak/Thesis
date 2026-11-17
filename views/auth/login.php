@@ -5,6 +5,7 @@
  * @var array<string,string> $errors
  * @var bool $signupOpen
  * @var string $invite token to return to after signing in (may be empty)
+ * @var bool $remember
  */
 ?>
 <div class="card card-narrow">
@@ -26,6 +27,9 @@
         'errors' => $errors, 'required' => true, 'attrs' => 'autocomplete="username" autofocus']) ?>
     <?= $this->partial('partials/field', ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'value' => '',
         'errors' => $errors, 'required' => true, 'attrs' => 'autocomplete="current-password"']) ?>
+    <?= $this->partial('partials/field', ['name' => 'remember', 'label' => 'Keep me signed in for ' . \App\Core\Auth::rememberDays() . ' days',
+        'type' => 'checkbox', 'value' => $remember, 'errors' => $errors,
+        'help' => 'Untick this on a shared or public computer. Signing out always ends it.']) ?>
     <button type="submit" class="btn btn-primary btn-block">Sign in</button>
   </form>
   <p class="small"><a href="<?= e(url('auth/forgot')) ?>">Forgot your password?</a></p>

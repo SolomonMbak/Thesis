@@ -15,7 +15,7 @@ use App\Services\PeriodGenerator;
   <a class="btn btn-small no-print" href="<?= e($monthUrl($month['next'])) ?>" aria-label="Next month">Next &rsaquo;</a>
 </div>
 <?php if ($month['has_dates']): ?>
-  <p class="small muted"><?= e($month['teaching_days']) ?> teaching day(s) this month<?= $month['closed_days'] ? ', ' . e($month['closed_days']) . ' without teaching' : '' ?>.
+  <p class="small muted">Semester: <?= e($month['span']) ?>. <?= e($month['teaching_days']) ?> teaching day(s) this month<?= $month['closed_days'] ? ', ' . e($month['closed_days']) . ' without teaching' : '' ?>.
     Weekends are left out.</p>
 <?php else: ?>
   <p class="alert alert-info">The semester has no start and end date yet, so every weekday shows the weekly timetable.

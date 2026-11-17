@@ -93,3 +93,28 @@ function mail_url(string $path): ?string
     }
     return absolute_url($path);
 }
+
+/**
+ * A short, readable name for a browser from its User-Agent text, such as
+ * "Chrome on Windows", for the list of browsers where a user stays signed in.
+ */
+function browser_label(string $userAgent): string
+{
+    $browser = match (true) {
+        str_contains($userAgent, 'Edg/') => 'Edge',
+        str_contains($userAgent, 'OPR/') => 'Opera',
+        str_contains($userAgent, 'Firefox/') => 'Firefox',
+        str_contains($userAgent, 'Chrome/') => 'Chrome',
+        str_contains($userAgent, 'Safari/') => 'Safari',
+        default => 'A browser',
+    };
+    $system = match (true) {
+        str_contains($userAgent, 'Android') => 'Android',
+        str_contains($userAgent, 'iPhone') || str_contains($userAgent, 'iPad') => 'iPhone or iPad',
+        str_contains($userAgent, 'Windows') => 'Windows',
+        str_contains($userAgent, 'Mac OS') => 'Mac',
+        str_contains($userAgent, 'Linux') => 'Linux',
+        default => 'an unknown system',
+    };
+    return "{$browser} on {$system}";
+}

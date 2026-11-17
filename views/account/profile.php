@@ -3,6 +3,10 @@
  * The user's own profile, theme and password.
  * @var array $errors
  * @var array $themes
+ * @var bool  $twoStepOn
+ * @var int   $codesLeft
+ * @var array $browsers  RememberTokenRepository::forUser()
+ * @var int   $rememberDays
  */
 ?>
 <h1>Your profile</h1>
@@ -37,3 +41,46 @@
   </div>
   <button type="submit" class="btn btn-primary">Change password</button>
 </form>
+
+<section class="panel" id="two-step" aria-labelledby="two-step-title">
+  <h2 id="two-step-title">Two-step sign-in</h2>
+  <?php if ($twoStepOn): ?>
+    <p><span class="tag tag-success">On</span> Signing in needs your password and a code from your authenticator app.
+      <?= e($codesLeft) ?> recovery code(s) left.</p>
+    <a class="btn" href="<?= e(url('account/two-step')) ?>">Manage two-step sign-in</a>
+  <?php else: ?>
+    <p><span class="tag">Off</span> Add a second step to signing in: a 6-digit code from an app on your phone. Someone who learns your
+      password still cannot get in. Recommended for owners and administrators.</p>
+    <a class="btn btn-primary" href="<?= e(url('account/two-step')) ?>">Set up two-step sign-in</a>
+  <?php endif; ?>
+</section>
+
+<section class="panel" id="devices" aria-labelledby="devices-title">
+  <h2 id="devices-title">Where you stay signed in</h2>
+  <p>Browsers where you ticked "Keep me signed in". Each stays signed in for up to <?= e($rememberDays) ?> days from that sign-in,
+    unless you sign out there. Without it, you are signed out after 60 minutes without activity.</p>
+  <?php if (!$browsers): ?>
+    <p class="muted">None at the moment.</p>
+  <?php else: ?>
+    <div class="table-wrap">
+      <table class="table table-stack">
+        <thead><tr><th scope="col">Browser</th><th scope="col">Signed in</th><th scope="col">Last used</th><th scope="col">Until</th></tr></thead>
+        <tbody>
+          <?php foreach ($browsers as $b): ?>
+            <tr>
+              <td data-label="Browser"><?= e(browser_label($b['user_agent'])) ?> <span class="muted small">(<?= e($b['ip']) ?>)</span></td>
+              <td data-label="Signed in"><?= e(substr((string) $b['created_at'], 0, 16)) ?></td>
+              <td data-label="Last used"><?= e(substr((string) $b['last_used_at'], 0, 16)) ?></td>
+              <td data-label="Until"><?= e(substr((string) $b['expires_at'], 0, 10)) ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="<?= e(url('account/sign-out-everywhere')) ?>"
+          data-confirm="Sign out on every browser where you stay signed in? Each one will ask for your password next time.">
+      <?= $csrf->field() ?>
+      <button type="submit" class="btn btn-danger-outline">Sign out on all browsers</button>
+    </form>
+  <?php endif; ?>
+</section>

@@ -23,6 +23,8 @@ final class Router
 
     /** Routes an unverified user past the grace period can still use. */
     private const VERIFY_ALLOWED = ['auth/logout', 'auth/verify', 'auth/verify-required', 'auth/resend-verification', 'help'];
+    /** Routes a user with a temporary password can use before choosing their own. */
+    private const NEW_PASSWORD_ALLOWED = ['auth/logout', 'auth/new-password', 'help'];
 
     private array $routes = [];
 
@@ -71,6 +73,12 @@ final class Router
             }
             $app->flash->info('Please sign in to continue.');
             Response::redirect(url('auth/login'));
+        }
+        if ($auth->mustChangePassword() && !in_array($route, self::NEW_PASSWORD_ALLOWED, true)) {
+            if ($app->request->isPost()) {
+                throw new HttpException(403, 'Choose your own password first.');
+            }
+            Response::redirect(url('auth/new-password'));
         }
         if ($auth->mustVerify() && !in_array($route, self::VERIFY_ALLOWED, true)) {
             Response::redirect(url('auth/verify-required'));

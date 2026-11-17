@@ -57,7 +57,7 @@ final class App
                 (int) Config::get('login_max_failures', 5),
                 (int) Config::get('login_window_minutes', 15)
             );
-            $this->auth = new Auth($this->db(), $limiter, $this->audit(), $this->session);
+            $this->auth = new Auth($this->db(), $limiter, $this->audit(), $this->session, $this->request);
         }
         return $this->auth;
     }
@@ -112,13 +112,29 @@ final class App
         return $id ? (new MemberRepository($this->db()))->memberships($id) : [];
     }
 
+    /** A value kept in the session between pages (for example a key being set up). */
+    public function sessionGet(string $key): mixed
+    {
+        return $this->session[$key] ?? null;
+    }
+
+    public function sessionSet(string $key, mixed $value): void
+    {
+        $this->session[$key] = $value;
+    }
+
+    public function sessionForget(string $key): void
+    {
+        unset($this->session[$key]);
+    }
+
     /** Write an audit entry for the signed-in user in the current school. */
     public function log(string $action, ?string $entity = null, ?int $entityId = null, array $details = []): void
     {
         $this->audit()->log($this->auth()->id(), $action, $entity, $entityId, $details, $this->request->ip(), $this->school()?->id);
     }
 
-    /** Store the school in the session; a new school or a changed role gets a new session id (BUILD_SPEC 13.2). */
+    /** Store the school in the session; a new school or a changed role gets a new session id (BUILD_SPEC 13.3). */
     private function remember(array $row): void
     {
         $changed = (int) ($this->session[self::SCHOOL_KEY] ?? 0) !== (int) $row['id']

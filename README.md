@@ -30,7 +30,8 @@ National Open University of Nigeria).
 | 7 | Experiment tooling | Done |
 | 8 | Hardening, documentation, release packaging | Done |
 | Retrofit | Multi-school workspaces, sign-up and invitations, Setup Guide and in-app help, dark mode, `/s/{slug}` public pages | Done |
-| 10.7 | Monthly calendar view: semester dates, holidays, Week / Month switch, export with dates | Done |
+| 10.7 | Monthly calendar view: semester dates (until a date or for a number of weeks), holidays, Week / Month switch, export with dates | Done |
+| 13.3 | Login security: keep me signed in for 30 days, two-step sign-in with an authenticator app, members added with a temporary password | Done |
 
 ## Requirements
 
@@ -97,6 +98,7 @@ No Composer packages, no build step. Chart.js (from cdnjs, with a Subresource In
 | `php -S localhost:8000 -t public` | Development server |
 | `php bin/migrate.php [--status]` | Apply (or list) database migrations |
 | `php bin/create_admin.php [--school=slug --role=owner]` | Create a platform administrator, or reset one's password |
+| `php bin/reset_2fa.php --email=...` | Turn two-step sign-in off for someone who lost their phone and recovery codes |
 | `php bin/seed.php [--force] [--owner=email]` | Demo schools `demo` and `test-college` (fixed seed). `--force` recreates only those two |
 | `php bin/engine_demo.php --school=demo [--generations=300] [--greedy=0]` | Run the GA with repair off and on and print results |
 | `php bin/run_ga.php <job_id>` | Run one queued job by hand |
@@ -112,11 +114,11 @@ No Composer packages, no build step. Chart.js (from cdnjs, with a Subresource In
 
 ## Tests
 
-`php tests/run.php` runs 136 tests: CSRF, validation, sign-in throttling, migrations, session building,
+`php tests/run.php` runs 146 tests: CSRF, validation, sign-in throttling, migrations, session building,
 feasibility rules, CSV import, every constraint of the fitness function on hand-built cases, the repair
 operator, GA operators and determinism, the job lifecycle and the run queue across schools, grids, manual
 scoring, backups, statistics, the monthly calendar, the Setup Guide rules, tenant isolation (repository level and over HTTP), and
-sign-up, verification, invitations, roles and password reset through the real pages. Tests that need MySQL
+sign-up, verification, invitations, roles and password reset through the real pages, and login security (two-step codes against the RFC 6238 vectors, the QR code, kept sign-ins, members with temporary passwords). Tests that need MySQL
 use `test_db_name` (every table in it is dropped) and are skipped when it is not set. The HTTP tests start
 their own `php -S` with `TT_TEST_DB=1`, which only the built-in server in development mode honours.
 
@@ -133,8 +135,8 @@ their own `php -S` with `TT_TEST_DB=1`, which only the built-in server in develo
 | `views/` | PHP templates; every value is escaped with `e()`. `views/help/` holds the help panel of every page |
 | `bin/` | Command line scripts |
 | `config/` | `config.php` defaults; `config.local.php` per server (not in releases) |
-| `database/migrations/` | Numbered SQL files, each applied once. Before the first release the whole schema is in `001_init.sql`; later changes go in `002_...` and are never edited once released |
-| `storage/` | Logs, exports, backups, uploads (school logos), cache and sessions; writable, never web-accessible |
+| `database/migrations/` | Numbered SQL files, each applied once and never edited once applied. `001_init.sql` holds the schema up to the calendar view; `002_login_security.sql` adds login security |
+| `storage/` | Logs, exports, backups, uploads (school logos), cache, sessions and `keys/app.key` (encrypts two-step sign-in keys); writable, never web-accessible |
 | `tests/` | `run.php` test runner and `*Test.php` files |
 | `docs/` | Deployment guide and user guide |
 
@@ -159,7 +161,8 @@ Tenant isolation (above), CSRF tokens on every POST (form field or `X-CSRF-Token
 prepared statements only, role checks on every route (school roles and platform administrators), sign-in
 throttling (5 failures per 15 minutes per email and per IP), throttled sign-up and password-reset requests,
 secure session cookies with a 60 minute idle timeout and a new session id on sign-in, school switch and role
-change, one-time hashed tokens for email verification, password reset and invitations, emailed links built
+change, an optional "Keep me signed in" for 30 days with rotating hashed tokens, optional two-step sign-in
+(authenticator app codes, encrypted keys, one-time recovery codes), temporary passwords that must be replaced, one-time hashed tokens for email verification, password reset and invitations, emailed links built
 only from `app_url` in production, security headers (Content-Security-Policy with no inline scripts except
 the theme script allowed by its hash, X-Frame-Options, nosniff, Referrer-Policy, HSTS on HTTPS), upload checks
 (size, extension, MIME type; logos stored under `storage/uploads/{school_id}`), escaped shell arguments, CSV
