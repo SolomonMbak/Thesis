@@ -24,8 +24,10 @@ final class HealthService
         $settings = new SettingsRepository($this->pdo);
         $checks = [];
 
-        $checks[] = $this->check('PHP version', version_compare(PHP_VERSION, '8.2.0', '>=') ? 'ok' : 'problem',
-            PHP_VERSION, 'PHP 8.2 or newer is required; 8.3 is recommended.');
+        // PHP 8.2 gets security fixes only until 31 December 2026, so a live server should run 8.3 or newer.
+        $phpStatus = version_compare(PHP_VERSION, '8.3.0', '>=') ? 'ok' : (version_compare(PHP_VERSION, '8.2.0', '>=') ? 'warning' : 'problem');
+        $checks[] = $this->check('PHP version', $phpStatus, PHP_VERSION,
+            'PHP 8.2 or newer is required. Use 8.3 or newer on a live server: 8.2 stops getting security fixes on 31 December 2026.');
         foreach (Environment::requiredExtensions() as $ext) {
             $checks[] = $this->check("Extension {$ext}", extension_loaded($ext) ? 'ok' : 'problem',
                 extension_loaded($ext) ? 'Loaded' : 'Missing', 'Ask the host to enable it.');
@@ -86,7 +88,86 @@ final class HealthService
             'Set app_env to production on a live server so error details are never shown.');
         $https = \App\Core\Request::isHttps();
         $checks[] = $this->check('HTTPS', $https ? 'ok' : 'warning', $https ? 'Yes' : 'No', 'Use HTTPS on a live server (for example Let\'s Encrypt).');
+        $checks[] = $this->databaseAccountCheck();
+        $checks[] = $this->configFileCheck();
+        $checks[] = $this->demoAccountsCheck();
+        $checks[] = $this->serverKeyCheck();
         return $checks;
+    }
+
+    /**
+     * The app should connect with its own database user, with a password and
+     * rights on this database only: never root (which can read and change
+     * every database on the server) and never an empty password.
+     */
+    private function databaseAccountCheck(): array
+    {
+        $user = (string) Config::get('db_user', '');
+        $problems = [];
+        if (strtolower($user) === 'root') {
+            $problems[] = 'connects as root';
+        }
+        if ((string) Config::get('db_pass', '') === '') {
+            $problems[] = 'has no password';
+        }
+        if ($this->hasGlobalPrivileges()) {
+            $problems[] = 'has rights on the whole server';
+        }
+        return $this->check('Database account', $problems ? 'warning' : 'ok',
+            $problems ? 'The app ' . implode(', ', $problems) : $user . ' (this database only)',
+            'Create a separate database user with a strong password and rights on this database only (docs/DEPLOYMENT.md, section 3.2 or 4.1), then put it in config.local.php.');
+    }
+
+    /** True if the connected user holds privileges on every database (*.*), beyond USAGE. */
+    private function hasGlobalPrivileges(): bool
+    {
+        try {
+            foreach ($this->pdo->query('SHOW GRANTS FOR CURRENT_USER()')->fetchAll(\PDO::FETCH_COLUMN) as $grant) {
+                if (preg_match('/^GRANT (.+) ON \*\.\* TO/i', (string) $grant, $m) && !preg_match('/^USAGE$/i', trim($m[1]))) {
+                    return true;
+                }
+            }
+        } catch (\PDOException) {
+            return false;   // cannot tell; the other checks still apply
+        }
+        return false;
+    }
+
+    /** config.local.php holds the database password: it must not be readable by other users of the server. */
+    private function configFileCheck(): array
+    {
+        $file = APP_ROOT . '/config/config.local.php';
+        if (DIRECTORY_SEPARATOR === '\\' || !is_file($file)) {
+            return $this->check('Settings file', 'ok', 'config/config.local.php', 'Keep a copy with your backups; it holds the database password.');
+        }
+        $private = (fileperms($file) & 0o007) === 0;
+        return $this->check('Settings file', $private ? 'ok' : 'warning', $private ? 'Not readable by other users' : 'Readable by every user of the server',
+            'Run chmod 640 config/config.local.php (or 600 on shared hosting). It holds the database password.');
+    }
+
+    /** The demo seed's accounts have published passwords; they must not exist on a live server. */
+    private function demoAccountsCheck(): array
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM users WHERE email IN ('owner@testcollege.example.edu', 'owner@demo.example.edu')");
+        $stmt->execute();
+        $found = (int) $stmt->fetchColumn();
+        return $this->check('Demo accounts', $found === 0 ? 'ok' : 'warning', $found === 0 ? 'None' : "{$found} found",
+            'The demo schools from bin/seed.php have passwords printed in the documentation. Delete those schools and accounts before going live.');
+    }
+
+    /** The key that encrypts two-step sign-in keys and the SMTP password must exist and be private. */
+    private function serverKeyCheck(): array
+    {
+        if ((string) Config::get('app_key', '') !== '') {
+            return $this->check('Server key', 'ok', 'app_key in config.local.php', '');
+        }
+        $file = APP_ROOT . '/storage/keys/app.key';
+        if (!is_file($file)) {
+            return $this->check('Server key', 'ok', 'Not created yet', 'It is created the first time someone sets up two-step sign-in. Back it up then.');
+        }
+        $private = DIRECTORY_SEPARATOR === '\\' || (fileperms($file) & 0o077) === 0;
+        return $this->check('Server key', $private ? 'ok' : 'warning', $private ? 'storage/keys/app.key' : 'Readable by other users',
+            'Run chmod 600 storage/keys/app.key, and keep a copy with your backups (it is not inside them).');
     }
 
     /** Cron lines to show the administrator, with the real paths filled in. */

@@ -108,6 +108,10 @@ final class PlatformController extends Controller
             if ($key === 'smtp_password' && $value === '') {
                 continue;
             }
+            if ($key === 'smtp_password') {
+                // Stored encrypted with the server key, so database backups do not contain it.
+                $value = \App\Core\Crypto::encrypt($value);
+            }
             $settings->set($key, $value);
         }
         $logged = $in;

@@ -15,6 +15,7 @@ use App\Services\Installer;
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
+Response::enforceHttps();
 Response::sendSecurityHeaders();
 header('Cache-Control: no-store');
 Session::start();

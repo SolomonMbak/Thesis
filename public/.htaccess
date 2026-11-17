@@ -11,6 +11,11 @@ DirectoryIndex index.php
 # Optional pretty URLs: send anything that is not a real file to index.php.
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Only GET, POST and HEAD are used. Refuse TRACE (cross-site tracing), PUT, DELETE and the rest.
+    RewriteCond %{REQUEST_METHOD} !^(GET|POST|HEAD)$
+    RewriteRule ^ - [F]
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [QSA,L]
@@ -21,6 +26,9 @@ DirectoryIndex index.php
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
     Header always set Referrer-Policy "same-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
 </IfModule>
 
 # Cache CSS, JS and images; URLs carry a version stamp so updates show at once.

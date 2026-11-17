@@ -28,6 +28,7 @@ final class Session
 
         ini_set('session.use_strict_mode', '1');
         ini_set('session.use_only_cookies', '1');
+        ini_set('session.use_trans_sid', '0');      // never put the session id in a URL
         ini_set('session.gc_maxlifetime', (string) ($idleSeconds + 300));
         ini_set('session.gc_probability', '1');
         ini_set('session.gc_divisor', '100');
@@ -35,7 +36,7 @@ final class Session
         session_name((string) Config::get('session_name', 'tt_session'));
         session_set_cookie_params([
             'lifetime' => 0,
-            'path' => '/',
+            'path' => self::cookiePath(),
             'secure' => Request::isHttps(),
             'httponly' => true,
             'samesite' => 'Lax',
@@ -50,6 +51,17 @@ final class Session
         }
         $_SESSION[self::LAST_ACTIVITY] = time();
         return $expired;
+    }
+
+    /**
+     * Cookies are sent only to this app's own folder (for example /timetable), not to
+     * every site on the same domain. With the root .htaccess fallback, addresses may
+     * leave out /public, so the cookie covers the folder above it.
+     */
+    public static function cookiePath(): string
+    {
+        $path = (string) preg_replace('#/public$#', '', Request::basePath());
+        return $path === '' ? '/' : $path . '/';
     }
 
     /** New session ID, keeping the data. Call on sign-in and role change. */

@@ -10,6 +10,7 @@ use App\Core\SchoolContext;
 use App\Data\HelpProgressRepository;
 use App\Data\SemesterRepository;
 use App\Data\SettingsRepository;
+use App\Data\TwoFactorRepository;
 use App\Services\SetupGuide;
 
 /**
@@ -104,6 +105,14 @@ abstract class Controller
             $key = $data['helpKey'];
             if ($key !== null && isset($tips[$key]) && !isset($done['tip_' . $key])) {
                 $data['tip'] = ['key' => $key] + $tips[$key];
+            }
+            // Two-step sign-in is optional but encouraged (BUILD_SPEC 13.3): owners and administrators
+            // without it see this on the dashboard, once its own tip is gone, until they hide it.
+            if ($data['tip'] === null && $route === 'dashboard' && $school->can('admin')
+                && !TwoFactorRepository::isOn($auth->user()) && !isset($done['tip_two_step'])) {
+                $data['tip'] = ['key' => 'two_step', 'route' => 'account/two-step', 'action' => 'Set up two-step sign-in',
+                    'text' => 'Protect your school with two-step sign-in: after your password, a code from your phone. '
+                        . 'Someone who learns your password still cannot get in. It is optional and takes two minutes.'];
             }
             $data['tourAutostart'] = !isset($done['tour_done']) || $this->app->request->query('tour') === '1';
         }

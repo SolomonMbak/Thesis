@@ -12,8 +12,10 @@ Contents
 3. Path A: Linux VPS
 4. Path B: cPanel shared hosting
 5. After installing (both paths)
+   5.1 Go-live security checklist
 6. Updating to a new version
 7. Backups and restoring
+   7.1 Changing the database password
 8. Configuration reference
 9. Troubleshooting
 
@@ -67,15 +69,30 @@ sudo a2enmod rewrite headers
 sudo mysql
 ```
 
-Then, inside MySQL (choose your own strong password):
+First make a long random password for the app's database user (and use it nowhere else):
+
+```
+openssl rand -base64 24
+```
+
+Then, inside MySQL, paste that password in place of `PASTE-THE-PASSWORD-HERE`:
 
 ```
 CREATE DATABASE timetable CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'timetable'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
-GRANT ALL PRIVILEGES ON timetable.* TO 'timetable'@'localhost';
-FLUSH PRIVILEGES;
+CREATE USER 'timetable'@'localhost' IDENTIFIED BY 'PASTE-THE-PASSWORD-HERE';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES, LOCK TABLES, SHOW VIEW
+  ON timetable.* TO 'timetable'@'localhost';
 EXIT;
 ```
+
+Why exactly these rights: the app reads and writes its own tables (SELECT, INSERT, UPDATE, DELETE);
+**Apply updates** creates and changes tables (CREATE, ALTER, INDEX, DROP, REFERENCES for the links between
+tables); backups need LOCK TABLES and SHOW VIEW. The user has no rights on any other database and none on the
+server itself (no FILE, PROCESS, SUPER or GRANT), so even a mistake in the app could not reach other data on
+the server. `'timetable'@'localhost'` also means it can only connect from this machine.
+
+Never let the app use `root`, and never leave the password empty: the Health page warns about both, and
+about a user with rights on the whole server.
 
 ### 3.3 Upload and unpack the code
 
@@ -159,11 +176,15 @@ Open `https://timetable.example.edu/install.php` in a browser. It checks the ser
 
 When it finishes it locks itself.
 
-Then protect the settings file:
+Then protect the settings file. It holds the database password, so only the web server may read it:
 
 ```
+sudo chown root:www-data /var/www/timetable/config/config.local.php
 sudo chmod 640 /var/www/timetable/config/config.local.php
 ```
+
+(The Health page warns if other users of the server can read it.) Keep a copy of this file somewhere safe
+(section 7); never email it, paste it into a chat, or commit it to Git.
 
 ### 3.7 Background runs: the worker service (preferred)
 
@@ -220,10 +241,13 @@ Add this line, then save:
 In cPanel open **MySQL Databases**:
 
 1. Create a database, for example `timetable`. cPanel adds your account name in front, so it becomes `myacct_timetable`.
-2. Create a user with a strong password, for example `myacct_tt`.
-3. Add the user to the database with **All privileges**.
+2. Create a user, for example `myacct_tt`. Use cPanel's **Password Generator** for a long random password,
+   and use it for nothing else.
+3. Add the user to the database. Instead of **All privileges**, tick only: SELECT, INSERT, UPDATE, DELETE,
+   CREATE, ALTER, INDEX, DROP, REFERENCES, LOCK TABLES, SHOW VIEW (section 3.2 explains why). Do not use
+   your main cPanel account's database user.
 
-Write down the full database name, user name and password.
+Write down the full database name, user name and password, and keep them in a password manager.
 
 ### 4.2 Upload the code outside `public_html`
 
@@ -253,6 +277,9 @@ Some hosts do not let you choose a document root. Then:
 
 Open `https://timetable.yourdomain.edu/install.php` (or `.../timetable/install.php`)
 and fill in the database details from 4.1. On cPanel the host is usually `localhost`.
+
+Afterwards, in **File Manager**, right-click `timetable/config/config.local.php`, choose **Change
+Permissions** and set it to **600** (only your account can read it; PHP runs as your account on cPanel).
 
 ### 4.6 Background runs: cron every minute
 
@@ -314,7 +341,53 @@ link emails are sent: set it in `config/config.local.php`.
    unless you made the platform invite-only.
 6. Share each school's public link (`https://timetable.example.edu/s/<school>`) once it has published a timetable.
 
-### 5.1 Semester dates and holidays
+### 5.1 Go-live security checklist
+
+The app protects itself (see docs/SECURITY_AUDIT.md), but some settings belong to the server. Before
+going live, check each line:
+
+1. **Install at once.** Run `install.php` straight after uploading: until it has run, anyone who finds the
+   address could install it. Afterwards it locks itself and answers "already installed".
+2. **HTTPS only.** Get a certificate (Let's Encrypt, or AutoSSL on cPanel) and set `app_url` to the
+   `https://` address. The app then sends plain-HTTP visitors to HTTPS, marks cookies Secure and sends HSTS.
+3. **app_env is production** (the installer sets it). Health shows a warning otherwise.
+4. **PHP 8.3 or newer.** PHP 8.2 stops getting security fixes on 31 December 2026.
+5. **No demo data.** Never run `bin/seed.php` on the live server (it refuses outside development). Health
+   warns if the demo accounts exist.
+6. **Server key.** After the first two-step sign-in set-up, copy `storage/keys/app.key` to where you keep
+   backups, and check it is `chmod 600`. Or set `app_key` in `config.local.php` (section 8).
+7. **Database credentials and access.**
+   - The app connects with its **own database user**, never `root` or your main account, with only the rights
+     listed in section 3.2 on this one database, allowed from `localhost` only.
+   - Its password is **long and random** (`openssl rand -base64 24`, or cPanel's generator), used nowhere
+     else, and **different from any development or test password**. Never copy a development
+     `config.local.php` to the live server.
+   - `config/config.local.php` is outside the web folder and readable only by the web server (640 on a VPS,
+     600 on cPanel). Health checks all of the above.
+   - MySQL listens on 127.0.0.1 only (`bind-address = 127.0.0.1`); port 3306 is closed in the firewall. If the
+     database must be on another machine, use a private network and require TLS for the connection.
+   - phpMyAdmin or Adminer is not open to the internet (on cPanel it is behind the cPanel login).
+   - `test_db_name` is not set on the live server (the tests delete every table in that database).
+   - If the password may have leaked (a former administrator, a shared screen), change it (section 7.1).
+8. **Apache server settings** (VPS, in the site or main configuration; these cannot go in `.htaccess`):
+
+   ```
+   ServerTokens Prod
+   ServerSignature Off
+   TraceEnable Off
+   ```
+
+   and in `php.ini`: `expose_php = Off`, `display_errors = Off`, `allow_url_include = Off` (the default).
+9. **Behind a proxy or CDN** (Cloudflare, a load balancer): list its addresses in `trusted_proxies`
+   (section 8), or sign-in throttling sees every visitor as the proxy and may lock everyone out together.
+10. **Email domain.** Set SPF, DKIM and DMARC records for the domain of the From address (Platform settings, email), so the app's emails
+    are delivered and nobody can easily forge them.
+11. **Platform administrators use two-step sign-in** (Profile, Two-step sign-in): they can download backups
+    of every school.
+12. **Back up** daily (section 3.8 on a VPS, or the second cron job in section 4) and keep a copy off the server, with the server key, encrypted
+    if you can.
+
+### 5.2 Semester dates and holidays
 
 Under **Manage, Semesters, Dates and holidays**, set the first and last day of teaching and add public
 holidays and breaks. The timetable itself is one week that repeats; these dates let the **Month** view and
@@ -351,6 +424,24 @@ codes. If you restore onto a new server without it, users with two-step sign-in 
 recovery code, or you turn it off for them with `php bin/reset_2fa.php --email=...`.
 Keep the key file readable by the web server only (permissions 600 or 640).
 
+Keep a copy of `config/config.local.php` too (it has the database name, user and password), in a password
+manager or encrypted storage, not next to the backups on the same server. Backups themselves never contain the
+database password: the app hands it to `mysqldump` in a temporary file only its own user can read, deleted
+as soon as the dump ends.
+
+### 7.1 Changing the database password
+
+Do this once a year, when an administrator who knew it leaves, or if it may have leaked.
+
+1. Make a new random password (`openssl rand -base64 24`, or cPanel's generator).
+2. Change it in the database: on a VPS, in `sudo mysql`:
+   `ALTER USER 'timetable'@'localhost' IDENTIFIED BY 'NEW-PASSWORD';`
+   On cPanel: **MySQL Databases**, **Current Users**, **Change Password**.
+3. At once, put the same password in `db_pass` in `config/config.local.php` (the site shows "The database
+   could not be reached" until both match).
+4. Open **Platform, Health** to check, and restart the worker on a VPS:
+   `sudo systemctl restart timetable-worker`.
+
 ## 8. Configuration reference
 
 The installer writes `config/config.local.php`. You can edit it by hand; only the keys
@@ -358,7 +449,7 @@ you want to change need to be there.
 
 | Key | Meaning | Default |
 | --- | --- | --- |
-| `db_host`, `db_port`, `db_name`, `db_user`, `db_pass` | Database connection | 127.0.0.1, 3306, timetable, root, (blank) |
+| `db_host`, `db_port`, `db_name`, `db_user`, `db_pass` | Database connection. The defaults are for a development machine only; the installer writes your own values. On a live server use the app's own user and a strong password (sections 3.2, 5.1) | 127.0.0.1, 3306, timetable, root, (blank) |
 | `app_url` | Full public address, e.g. `https://timetable.example.edu` (or `https://yourdomain.edu/timetable/public` with the no-document-root fallback). Used for emailed links; required in production | set by the installer |
 | `app_env` | `production` or `development` (development shows error details) | production |
 | `timezone` | PHP and database time zone | Africa/Lagos |
@@ -367,6 +458,7 @@ you want to change need to be there.
 | `session_idle_minutes` | Sign out after this many idle minutes | 60 |
 | `login_max_failures`, `login_window_minutes` | Sign-in throttling (also used for two-step codes) | 5, 15 |
 | `remember_days` | How long "Keep me signed in" lasts after sign-in (1 to 90) | 30 |
+| `trusted_proxies` | Addresses of your own reverse proxy or load balancer, e.g. `['10.0.0.5']`. Only requests from these may give the visitor's address in X-Forwarded-For | `[]` |
 | `remember_cookie` | Name of the "Keep me signed in" cookie | tt_remember |
 | `app_key` | Base64 of 32 random bytes that encrypts two-step sign-in keys. If blank, `storage/keys/app.key` is created on first use. Generate one with `php -r "echo base64_encode(random_bytes(32));"` | (blank) |
 | `test_db_name` | Separate empty database for the tests (development only) | (blank) |

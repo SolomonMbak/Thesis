@@ -165,8 +165,8 @@ $link = fn (string $route, string $label): string => $signedIn ? '<a href="' . e
       <dd>60 minutes without activity, unless you tick "Keep me signed in" when you sign in: then up to 30 days on that browser, or until you
         press Sign out. Do not tick it on a shared computer. Under Profile you can sign out on all browsers at once.</dd></div>
     <div data-search-item><dt>What is two-step sign-in?</dt>
-      <dd>An extra check after your password: a 6-digit code from an authenticator app on your phone. Turn it on under Profile, Two-step
-        sign-in. Keep the recovery codes you are given; each lets you sign in once without your phone.</dd></div>
+      <dd>An extra check after your password: a 6-digit code from an authenticator app on your phone. It is optional but encouraged, especially for owners
+        and administrators. Turn it on under Profile, Two-step sign-in. Keep the recovery codes you are given; each lets you sign in once without your phone.</dd></div>
     <div data-search-item><dt>I lost my phone and my recovery codes.</dt>
       <dd>Ask the platform administrator to turn two-step sign-in off for your account. Then sign in with your password and set it up again.</dd></div>
     <div data-search-item><dt>Can other schools see our data?</dt>

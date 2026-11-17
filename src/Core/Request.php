@@ -76,6 +76,11 @@ final class Request
         if (preg_match('#^/help/?$#', $path)) {
             return $this->pathRoute = ['r' => 'help'];
         }
+        // Any other path (for example /phpinfo.php or /backup.zip) is not a page: answer 404,
+        // not the home page, so scanners and search engines see that nothing is there.
+        if ($path !== '' && $path !== '/' && !preg_match('#^/public/?$#', $path)) {
+            return $this->pathRoute = ['r' => 'not-found'];
+        }
         return $this->pathRoute = [];
     }
 
@@ -112,8 +117,17 @@ final class Request
 
     public function ip(): string
     {
-        // REMOTE_ADDR only: forwarded headers can be forged by the client.
-        return (string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0');
+        // REMOTE_ADDR, because forwarded headers can be forged by the client. Only when the request
+        // comes from a proxy listed in trusted_proxies (for example a load balancer or Cloudflare) is
+        // X-Forwarded-For used, and then only the address that proxy added (the last one).
+        $remote = (string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0');
+        $trusted = (array) Config::get('trusted_proxies', []);
+        if ($trusted === [] || !in_array($remote, $trusted, true)) {
+            return $remote;
+        }
+        $chain = array_map('trim', explode(',', (string) ($this->server['HTTP_X_FORWARDED_FOR'] ?? '')));
+        $client = (string) end($chain);
+        return filter_var($client, FILTER_VALIDATE_IP) ? $client : $remote;
     }
 
     public static function isHttps(): bool

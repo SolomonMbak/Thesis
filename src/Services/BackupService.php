@@ -64,7 +64,13 @@ final class BackupService
         }
     }
 
-    /** Try mysqldump. The password goes in an environment variable, never on the command line. */
+    /**
+     * Try mysqldump. The database password is never on the command line or in
+     * the environment (both can be read by other processes): it goes in a
+     * temporary option file only the app's own user can read, deleted at once.
+     * --no-tablespaces lets a database user with only this database's
+     * privileges make the dump (MySQL 8 otherwise demands PROCESS).
+     */
     private function mysqldump(string $gzPath): bool
     {
         if (!Environment::canExec() || !function_exists('proc_open')) {
@@ -74,12 +80,47 @@ final class BackupService
         if ($binary === null) {
             return false;
         }
-        $cmd = [$binary, '--single-transaction', '--routines', '--default-character-set=utf8mb4',
-            '--host=' . Config::get('db_host'), '--port=' . (int) Config::get('db_port'),
-            '--user=' . Config::get('db_user'), (string) Config::get('db_name')];
-        $env = getenv();
-        $env['MYSQL_PWD'] = (string) Config::get('db_pass');
-        $process = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $options = $this->writeOptionFile();
+        if ($options === null) {
+            return false;
+        }
+        try {
+            return $this->runMysqldump($binary, $options, $gzPath);
+        } finally {
+            @unlink($options);
+        }
+    }
+
+    /** A [client] option file with the connection details, readable by the owner only. Null if it cannot be written. */
+    private function writeOptionFile(): ?string
+    {
+        $quote = fn (string $v): string => '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $v) . '"';
+        $content = "[client]\n"
+            . 'host=' . $quote((string) Config::get('db_host')) . "\n"
+            . 'port=' . (int) Config::get('db_port') . "\n"
+            . 'user=' . $quote((string) Config::get('db_user')) . "\n"
+            . 'password=' . $quote((string) Config::get('db_pass')) . "\n";
+        $dir = APP_ROOT . '/storage/cache';
+        $file = $dir . '/mysqldump_' . bin2hex(random_bytes(8)) . '.cnf';
+        $old = umask(0077);
+        try {
+            $written = @file_put_contents($file, $content, LOCK_EX);
+        } finally {
+            umask($old);
+        }
+        if ($written === false) {
+            return null;
+        }
+        @chmod($file, 0600);
+        return $file;
+    }
+
+    private function runMysqldump(string $binary, string $optionFile, string $gzPath): bool
+    {
+        // --defaults-extra-file must be the first option.
+        $cmd = [$binary, '--defaults-extra-file=' . $optionFile, '--single-transaction', '--no-tablespaces', '--routines',
+            '--default-character-set=utf8mb4', (string) Config::get('db_name')];
+        $process = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($process)) {
             return false;
         }

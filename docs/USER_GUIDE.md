@@ -189,7 +189,8 @@ Click your name in the top bar for **Profile and theme** (System, Light or Dark)
 - **Two-step sign-in.** Under *Profile, Two-step sign-in*: install an authenticator app (Google Authenticator,
   Microsoft Authenticator, Authy), scan the QR code (or type the key), and confirm with a code and your password. From
   then on, signing in asks for the 6-digit code after your password. Keep the 10 recovery codes you are shown; each
-  lets you sign in once without your phone. Recommended for owners and administrators. If you lose both the phone and
+  lets you sign in once without your phone. It is optional but encouraged, especially for owners and administrators,
+  who see a reminder on the dashboard until they set it up or hide it. If you lose both the phone and
   the codes, the platform administrator can turn it off for you (`php bin/reset_2fa.php --email=...`). Forgot your password? Use "Forgot your password?" on the sign-in page; the emailed
 link works for 1 hour.
 

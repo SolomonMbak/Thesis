@@ -25,6 +25,11 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 if (PHP_SAPI !== 'cli') {
     exit("Run this from the command line.\n");
 }
+// The demo accounts below have passwords printed in this file and the README: never create them on a live server.
+if (!\App\Core\Config::isDevelopment()) {
+    fwrite(STDERR, "bin/seed.php only runs when app_env is 'development'. The demo accounts it creates have published passwords.\n");
+    exit(1);
+}
 
 const DEMO_SEED = 20250101;
 const TEST_OWNER = ['Test College Owner', 'owner@testcollege.example.edu', 'testcollege123'];

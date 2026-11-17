@@ -81,6 +81,7 @@ final class AccountController extends Controller
         }
         (new UserRepository($this->app->db()))->setPassword((int) $user['id'], $new);
         Session::regenerate();
+        $auth->keepSessionAfterPasswordChange();
         // A new password ends "Keep me signed in" everywhere else; this browser stays signed in if it was.
         $kept = $auth->isRemembered();
         $auth->forgetAllBrowsers((int) $user['id']);

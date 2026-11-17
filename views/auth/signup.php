@@ -19,6 +19,11 @@
 
   <form method="post" action="<?= e(url('auth/signup')) ?>" novalidate>
     <?= $csrf->field() ?>
+    <?php /* Honeypot against sign-up bots: hidden from people and screen readers; anything typed here is refused. */ ?>
+    <div class="visually-hidden" aria-hidden="true">
+      <label for="f_website">Leave this empty</label>
+      <input type="text" id="f_website" name="website" value="" tabindex="-1" autocomplete="off">
+    </div>
     <h2>About you</h2>
     <?= $this->partial('partials/field', ['name' => 'full_name', 'label' => 'Your name', 'value' => $old['full_name'], 'errors' => $errors,
         'required' => true, 'attrs' => 'autocomplete="name"']) ?>

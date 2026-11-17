@@ -162,6 +162,11 @@ final class LoginSecurityTest extends TestCase
         $http = new HttpClient();
         $this->signUpOwner($http, 'two@example.edu');
 
+        // Optional but encouraged: once the dashboard's own tip is hidden, owners without it see a nudge.
+        $this->assertFalse(str_contains($http->get('/index.php?r=dashboard')['body'], 'data-tip="two_step"'), 'One tip at a time.');
+        $http->postApi('/api/help.php', ['item' => 'tip_dashboard']);
+        $this->assertTrue(str_contains($http->get('/index.php?r=dashboard')['body'], 'data-tip="two_step"'), 'Nudge to set it up.');
+
         // Set up: the page shows a QR code and the key; a wrong code or password is refused.
         $setup = $http->get('/index.php?r=account/two-step');
         $this->assertSame(200, $setup['status']);
@@ -178,6 +183,7 @@ final class LoginSecurityTest extends TestCase
         preg_match_all('#<code>([a-z2-9]{5}-[a-z2-9]{5})</code>#', $codesPage, $c);
         $this->assertCount(10, $c[1], 'Ten recovery codes shown once.');
         $this->assertSame(303, $http->get('/index.php?r=account/two-step/codes')['status'], 'Not shown a second time.');
+        $this->assertFalse(str_contains($http->get('/index.php?r=dashboard')['body'], 'data-tip="two_step"'), 'No nudge once it is on.');
         $members = $http->get('/index.php?r=members')['body'];
         $this->assertTrue(str_contains($members, 'Two-step on'), 'Members list shows who uses two-step sign-in.');
 
@@ -261,6 +267,9 @@ final class LoginSecurityTest extends TestCase
         $olu->post('/index.php?r=auth/new-password', ['password' => 'my own secret 9', 'password_confirm' => 'my own secret 9'],
             '/index.php?r=auth/new-password');
         $this->assertSame(200, $olu->get('/index.php?r=rooms')['status'], 'Officer can now work.');
+        $olu->postApi('/api/help.php', ['item' => 'tip_dashboard']);
+        $this->assertFalse(str_contains($olu->get('/index.php?r=dashboard')['body'], 'data-tip="two_step"'),
+            'The nudge is for owners and administrators; officers may still turn it on under Profile.');
         $this->assertSame(403, $olu->get('/index.php?r=members')['status'], 'An officer cannot manage members.');
         $this->assertSame(403, $olu->post('/index.php?r=members/add', ['add_name' => 'X', 'add_email' => 'x@example.edu',
             'add_role' => 'admin', 'add_password' => 'temporary-pass-2'], '/index.php?r=rooms')['status'], 'Nor add them.');

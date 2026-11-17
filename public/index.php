@@ -21,6 +21,7 @@ if (!Installer::isInstalled()) {
     exit;
 }
 
+Response::enforceHttps();
 Response::sendSecurityHeaders();
 header('Cache-Control: no-store');
 

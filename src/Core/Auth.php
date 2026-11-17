@@ -29,6 +29,7 @@ final class Auth
     public const VERIFY_GRACE_DAYS = 7;
 
     private const SESSION_KEY = '_user_id';
+    private const PASSWORD_MARK_KEY = '_pw_mark';
     /** Password accepted, waiting for the two-step code: [user_id, at, remember]. */
     private const PENDING_KEY = '_2fa_pending';
     /** Minutes allowed between the password and the code. */
@@ -79,7 +80,7 @@ final class Auth
         }
 
         $this->limiter->record($email, $ip, true);
-        $this->upgradeHashIfNeeded((int) $user['id'], $password, $user['password_hash']);
+        $user['password_hash'] = $this->upgradeHashIfNeeded((int) $user['id'], $password, $user['password_hash']);
 
         if (TwoFactorRepository::isOn($user)) {
             // Not signed in yet: the code comes next (awaitingSecondStep, verifySecondStep).
@@ -250,7 +251,7 @@ final class Auth
         }
         setcookie(self::rememberCookieName(), $value, [
             'expires' => $expires,
-            'path' => '/',
+            'path' => Session::cookiePath(),
             'secure' => Request::isHttps(),
             'httponly' => true,
             'samesite' => 'Lax',
@@ -275,8 +276,36 @@ final class Auth
         // A new sign-in starts with no school chosen; App::school() picks the last one used.
         unset($this->session['_school_id'], $this->session['_school_role']);
         $this->session[self::SESSION_KEY] = (int) $user['id'];
+        $this->session[self::PASSWORD_MARK_KEY] = self::passwordMark($user);
         $this->user = $user;
         $this->loaded = true;
+    }
+
+    /**
+     * A short fingerprint of the password hash, kept in the session. When the
+     * password changes (or is reset), every other session no longer matches
+     * and is signed out at its next request, including a stolen one.
+     */
+    private static function passwordMark(array $user): string
+    {
+        return substr(hash('sha256', (string) $user['password_hash']), 0, 16);
+    }
+
+    /** After the signed-in user changed their own password: keep this session valid. */
+    public function keepSessionAfterPasswordChange(): void
+    {
+        $id = $this->session[self::SESSION_KEY] ?? null;
+        if (!is_int($id)) {
+            return;
+        }
+        // Read the row directly: user() would sign this session out, as its mark is still the old one.
+        $stmt = $this->pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
+        $stmt->execute([$id]);
+        $hash = $stmt->fetchColumn();
+        if ($hash !== false) {
+            $this->session[self::PASSWORD_MARK_KEY] = self::passwordMark(['password_hash' => $hash]);
+        }
+        $this->refresh();
     }
 
     public function logout(string $ip): void
@@ -309,8 +338,11 @@ final class Auth
         $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
         $stmt->execute([$id]);
         $this->user = $stmt->fetch() ?: null;
+        if ($this->user !== null && !hash_equals((string) ($this->session[self::PASSWORD_MARK_KEY] ?? ''), self::passwordMark($this->user))) {
+            $this->user = null;   // the password changed since this session signed in
+        }
         if ($this->user === null) {
-            unset($this->session[self::SESSION_KEY]);
+            unset($this->session[self::SESSION_KEY], $this->session[self::PASSWORD_MARK_KEY]);
         }
         return $this->user;
     }
@@ -371,16 +403,24 @@ final class Auth
         $this->user = null;
     }
 
+    /**
+     * bcrypt cost 12 (PHP 8.4's own default; 8.2 and 8.3 default to 10, which
+     * is now cheap to attack). Older hashes are upgraded at the next sign-in.
+     */
+    private const HASH_OPTIONS = ['cost' => 12];
+
     public static function hashPassword(string $password): string
     {
-        return password_hash($password, PASSWORD_DEFAULT);
+        return password_hash($password, PASSWORD_DEFAULT, self::HASH_OPTIONS);
     }
 
-    private function upgradeHashIfNeeded(int $userId, string $password, string $hash): void
+    /** Re-hash with the current cost if needed. Returns the hash now stored. */
+    private function upgradeHashIfNeeded(int $userId, string $password, string $hash): string
     {
-        if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
-            $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
-                ->execute([self::hashPassword($password), $userId]);
+        if (password_needs_rehash($hash, PASSWORD_DEFAULT, self::HASH_OPTIONS)) {
+            $hash = self::hashPassword($password);
+            $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([$hash, $userId]);
         }
+        return $hash;
     }
 }

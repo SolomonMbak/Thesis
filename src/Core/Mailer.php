@@ -81,7 +81,7 @@ final class Mailer
             if ($user !== '') {
                 $this->command($socket, 'AUTH LOGIN', 334);
                 $this->command($socket, base64_encode($user), 334);
-                $this->command($socket, base64_encode((string) $this->settings->get('smtp_password', '')), 235);
+                $this->command($socket, base64_encode(self::smtpPassword((string) $this->settings->get('smtp_password', ''))), 235);
             }
             $this->command($socket, 'MAIL FROM:<' . $this->fromAddress() . '>', 250);
             $this->command($socket, 'RCPT TO:<' . $to . '>', [250, 251]);
@@ -149,6 +149,19 @@ final class Mailer
     }
 
     /** Remove line breaks so a value can never add extra headers. */
+    /**
+     * The SMTP password is saved encrypted with the server key (Crypto), so a
+     * database backup does not reveal it. A value saved before that change is
+     * still plain text and is used as it is.
+     */
+    public static function smtpPassword(string $stored): string
+    {
+        if (preg_match('/^(s1|o1):/', $stored)) {
+            return Crypto::decrypt($stored) ?? '';
+        }
+        return $stored;
+    }
+
     private static function clean(string $value): string
     {
         return trim((string) preg_replace('/[\r\n]+/', ' ', $value));

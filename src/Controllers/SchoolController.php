@@ -284,6 +284,7 @@ final class SchoolController extends Controller
             $this->app->flash->error('Choose a member of this school.');
             $this->redirect('school/settings');
         }
+        $this->requirePassword();
         (new MemberRepository($this->app->db()))->transferOwnership($school, (int) $school->userId, (int) $to['id']);
         $this->app->log('school.transfer', 'user', (int) $to['id']);
         $this->app->flash->success("{$to['full_name']} is now the owner. You stay in the school as an administrator.");
@@ -298,6 +299,7 @@ final class SchoolController extends Controller
             $this->app->flash->error("To delete the school, type its link name ({$school->slug()}) exactly.");
             $this->redirect('school/settings');
         }
+        $this->requirePassword();
         if ((new JobRepository($this->app->db(), $school))->active() !== null) {
             $this->app->flash->error('A timetable run is waiting or running. Stop it first, then delete the school.');
             $this->redirect('school/settings');
@@ -308,12 +310,26 @@ final class SchoolController extends Controller
         $this->redirect('dashboard');
     }
 
+    /**
+     * Actions that cannot be undone ask for the password again, so a
+     * forgotten open session or a stolen session cookie is not enough.
+     */
+    private function requirePassword(): void
+    {
+        $user = $this->app->auth()->user();
+        if (!password_verify((string) $this->app->request->input('current_password', ''), (string) $user['password_hash'])) {
+            $this->app->log('school.reauth_failed', 'user', (int) $user['id']);
+            $this->app->flash->error('Your password was not correct, so nothing was changed.');
+            $this->redirect('school/settings');
+        }
+    }
+
     private function checkLogo(?array $file): ?string
     {
         if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
             return 'Choose an image file for the logo.';
         }
-        if ($file['error'] !== UPLOAD_ERR_OK || $file['size'] > self::LOGO_MAX_BYTES) {
+        if ($file['error'] !== UPLOAD_ERR_OK || $file['size'] > self::LOGO_MAX_BYTES || !is_uploaded_file((string) $file['tmp_name'])) {
             return 'The logo must be a PNG, JPEG, GIF or WebP image smaller than 512 KB.';
         }
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);

@@ -12,6 +12,7 @@ National Open University of Nigeria).
 | --- | --- |
 | [BUILD_SPEC.md](BUILD_SPEC.md) | The specification: data model, constraints, GA design, experiments |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing on a Linux VPS or cPanel shared hosting |
+| [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | The go-live security audit: every check, what was found and fixed |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | School owners, administrators and officers: the Setup Guide and each part of the system |
 | Home page (`/`) and About page (`?r=about`) in the app | Anyone: what the app does, at first glance |
 | Help Centre (in the app, `/help`) | Everyone, including visitors before they sign up |
@@ -114,7 +115,7 @@ No Composer packages, no build step. Chart.js (from cdnjs, with a Subresource In
 
 ## Tests
 
-`php tests/run.php` runs 146 tests: CSRF, validation, sign-in throttling, migrations, session building,
+`php tests/run.php` runs 154 tests: CSRF, validation, sign-in throttling, migrations, session building,
 feasibility rules, CSV import, every constraint of the fitness function on hand-built cases, the repair
 operator, GA operators and determinism, the job lifecycle and the run queue across schools, grids, manual
 scoring, backups, statistics, the monthly calendar, the Setup Guide rules, tenant isolation (repository level and over HTTP), and
@@ -162,9 +163,12 @@ prepared statements only, role checks on every route (school roles and platform 
 throttling (5 failures per 15 minutes per email and per IP), throttled sign-up and password-reset requests,
 secure session cookies with a 60 minute idle timeout and a new session id on sign-in, school switch and role
 change, an optional "Keep me signed in" for 30 days with rotating hashed tokens, optional two-step sign-in
-(authenticator app codes, encrypted keys, one-time recovery codes), temporary passwords that must be replaced, one-time hashed tokens for email verification, password reset and invitations, emailed links built
+(authenticator app codes, encrypted keys, one-time recovery codes), temporary passwords that must be replaced, password changes that sign out every other session, the password asked again
+before deleting or handing over a school, limits on invitations and reset emails, a honeypot on sign-up, one-time hashed tokens for email verification, password reset and invitations, emailed links built
 only from `app_url` in production, security headers (Content-Security-Policy with no inline scripts except
-the theme script allowed by its hash, X-Frame-Options, nosniff, Referrer-Policy, HSTS on HTTPS), upload checks
+the theme script allowed by its hash, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, HSTS and an
+HTTPS redirect in production), no PHP version in headers, only GET, POST and HEAD accepted, upload checks
 (size, extension, MIME type; logos stored under `storage/uploads/{school_id}`), escaped shell arguments, CSV
 formula neutralising in exports, an audit log per school, and an installer that locks itself.
-See BUILD_SPEC section 13.
+See BUILD_SPEC section 13, the audit in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) and the go-live
+checklist in docs/DEPLOYMENT.md section 5.1.

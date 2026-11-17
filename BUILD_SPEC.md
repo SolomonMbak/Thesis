@@ -791,6 +791,17 @@ Checks: fresh deployment on a clean VPS and on cPanel following only DEPLOYMENT.
 - Errors: `display_errors = 0` in production; friendly error page; details in logs.
 - Audit log for logins, data changes, job start/stop/publish, settings and user changes, backups.
 - Installer locked after use; `config.local.php` permissions 640 where possible.
+- Added by the go-live audit (2026-11-17, docs/SECURITY_AUDIT.md): Permissions-Policy and Cross-Origin-Opener-Policy headers, no
+  X-Powered-By, only GET/POST/HEAD (.htaccess), HTTPS redirect in production built from `app_url`, unknown paths answer 404,
+  cookies scoped to the app's folder, bcrypt cost 12, a password change or reset signs out every other session (fingerprint of the
+  password hash in the session), the password is asked again to delete or hand over a school, `is_uploaded_file` on every
+  upload, the SMTP password stored encrypted, limits on invitation emails (30 per school and 3 per address per hour) and on
+  reset emails per address, a honeypot field on sign-up, `trusted_proxies` for the client address, `bin/seed.php` refuses outside
+  development, and Health warnings for demo accounts, the server key and PHP older than 8.3.
+- Database credentials: the app's database user has only SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP,
+  REFERENCES, LOCK TABLES and SHOW VIEW on its own database, from localhost, with a random password; never root. mysqldump gets
+  the password through a temporary 0600 option file (never the command line or environment) and runs with --no-tablespaces.
+  Health warns about root, an empty password, server-wide grants and a config.local.php readable by other users.
 
 ### 13.3 Login security (added 2026-11-17 at the developer's request)
 
@@ -801,7 +812,8 @@ Checks: fresh deployment on a clean VPS and on cPanel following only DEPLOYMENT.
   changes on every use; the previous one is accepted for 2 minutes (parallel requests); any other value deletes the token.
   Sign-out deletes this browser's token. A password change or reset deletes all of the user's tokens (a change keeps the current
   browser signed in if it was). Profile lists the browsers and has "Sign out on all browsers".
-- **Two-step sign-in (TOTP, RFC 6238).** Optional for every user, recommended for owners and administrators. Set up under Profile:
+- **Two-step sign-in (TOTP, RFC 6238).** Optional for every user, never required, but encouraged: owners and administrators
+  without it see a dismissible tip on the dashboard (after the dashboard's own tip) linking to the set-up. Set up under Profile:
   a QR code (inline SVG, drawn by `App\Core\QrCode`, no outside library) and the key in base32 for typing; confirmed with a code and
   the password. The key is stored encrypted (`users.totp_secret`, libsodium secretbox or AES-256-GCM) with the server key
   `app_key` in config.local.php or `storage/keys/app.key` (created on first use, never in backups of the database). Codes: 6 digits,

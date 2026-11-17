@@ -125,7 +125,7 @@ final class AuthController extends Controller
         }
         (new UserRepository($this->app->db()))->setPassword((int) $user['id'], $password);
         \App\Core\Session::regenerate();
-        $auth->refresh();
+        $auth->keepSessionAfterPasswordChange();
         $this->app->audit()->log((int) $user['id'], 'auth.change_password', 'user', (int) $user['id'], ['first_sign_in' => true], $this->app->request->ip());
         $this->app->flash->success('Your password is saved. From now on, sign in with it.');
         $this->redirect($this->afterSignIn());
@@ -187,6 +187,10 @@ final class AuthController extends Controller
         $users = new UserRepository($this->app->db());
         if (!isset($errors['email']) && $users->findByEmail($in['email'])) {
             $errors['email'] = 'An account with this email already exists. Sign in instead, then use "Create another school" in the top bar.';
+        }
+        if (!$errors && trim((string) $this->app->request->input('website', '')) !== '') {
+            // Only a bot fills the hidden field. The message stays vague on purpose.
+            $errors['form'] = 'Your school account could not be created. Please try again.';
         }
         if (!$errors && $this->throttle()->hit('signup|' . $this->app->request->ip())) {
             $errors['form'] = 'Too many accounts were created from this network in the last hour. Please try again later.';
@@ -267,7 +271,9 @@ final class AuthController extends Controller
     public function forgot(): void
     {
         $email = strtolower(trim((string) $this->app->request->input('email', '')));
+        // Limited per network address and per account, so nobody can flood one person's inbox from many addresses.
         $limited = $this->throttle()->hit('forgot|' . $this->app->request->ip());
+        $limited = $this->throttle()->hit('forgot-to|' . $email) || $limited;
         $user = filter_var($email, FILTER_VALIDATE_EMAIL) ? (new UserRepository($this->app->db()))->findByEmail($email) : null;
         if (!$limited && $user && (int) $user['is_active'] === 1) {
             (new AccountMail($this->app->db()))->sendPasswordReset($user);

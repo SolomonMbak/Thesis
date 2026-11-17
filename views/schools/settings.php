@@ -72,6 +72,10 @@ $statusText = ['finished' => 'finished', 'failed' => 'failed', 'stopped' => 'sto
             <?php endforeach; ?>
           </select>
         </div>
+        <div class="field">
+          <label for="transfer_password">Your password</label>
+          <input type="password" id="transfer_password" name="current_password" autocomplete="current-password" required>
+        </div>
         <button type="submit" class="btn">Hand over</button>
       </form>
     <?php endif; ?>
@@ -87,6 +91,10 @@ $statusText = ['finished' => 'finished', 'failed' => 'failed', 'stopped' => 'sto
       <div class="field">
         <label for="confirm_slug">Type <strong><?= e($school->slug()) ?></strong> to confirm</label>
         <input type="text" id="confirm_slug" name="confirm_slug" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="delete_password">Your password</label>
+        <input type="password" id="delete_password" name="current_password" autocomplete="current-password" required>
       </div>
       <button type="submit" class="btn btn-danger">Delete the school</button>
     </form>

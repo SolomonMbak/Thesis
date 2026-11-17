@@ -46,8 +46,10 @@ $f = fn (string $name, string $label, array $extra = []) => $this->partial('part
         <?= $f('db_host', 'Database host', ['required' => true, 'help' => 'Usually 127.0.0.1 or localhost.']) ?>
         <?= $f('db_port', 'Database port', ['type' => 'number', 'required' => true]) ?>
         <?= $f('db_name', 'Database name', ['required' => true]) ?>
-        <?= $f('db_user', 'Database user', ['required' => true]) ?>
-        <?= $f('db_pass', 'Database password', ['type' => 'password']) ?>
+        <?= $f('db_user', 'Database user', ['required' => true,
+            'help' => 'A user made only for this app, with rights on this database only. Never root.']) ?>
+        <?= $f('db_pass', 'Database password', ['type' => 'password',
+            'help' => 'A long random password used nowhere else. It is saved in config/config.local.php, outside the web folder.']) ?>
         <?= $f('app_url', 'Site address', ['type' => 'url', 'help' => 'The address people use, for example https://timetable.example.edu. Emailed links (sign-up, password reset, invitations) use it.']) ?>
       </div>
 

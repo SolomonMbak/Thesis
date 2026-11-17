@@ -54,7 +54,8 @@ final class CsvImporter
         if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
             return 'Choose a CSV file to upload.';
         }
-        if ($file['error'] !== UPLOAD_ERR_OK) {
+        // is_uploaded_file: the path must be a file PHP received in this request, never one named by the client.
+        if ($file['error'] !== UPLOAD_ERR_OK || !is_uploaded_file((string) $file['tmp_name'])) {
             return 'The upload failed. Check that the file is smaller than 2 MB and try again.';
         }
         if ($file['size'] > self::MAX_BYTES) {

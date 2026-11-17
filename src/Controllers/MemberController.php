@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Auth;
+use App\Core\RateLimiter;
 use App\Core\SchoolContext;
 use App\Core\Validator;
 use App\Data\InvitationRepository;
@@ -22,6 +23,9 @@ use App\Services\AccountMail;
  */
 final class MemberController extends Controller
 {
+    /** Invitations or direct additions a school may make per hour. */
+    private const INVITES_PER_HOUR = 30;
+
     public function index(array $errors = [], array $old = []): void
     {
         $school = $this->school();
@@ -50,6 +54,13 @@ final class MemberController extends Controller
                     $errors['email'] = "{$in['email']} is already a member. Change their role in the list below instead.";
                 }
             }
+        }
+        // Invitations send email to any address: limit them so the app cannot be used to send spam.
+        if (!$errors && $this->tooMany('invite|' . $school->id, self::INVITES_PER_HOUR)) {
+            $errors['email'] = 'Your school has sent many invitations in the last hour. Please try again later.';
+        }
+        if (!$errors && $this->tooMany('invite-to|' . $in['email'], 3)) {
+            $errors['email'] = 'This address was sent several invitations in the last hour. Ask them to check their spam folder, or try again later.';
         }
         if ($errors) {
             http_response_code(422);
@@ -91,6 +102,9 @@ final class MemberController extends Controller
         if (!isset($errors['add_email']) && $users->findByEmail($in['add_email'])) {
             $errors['add_email'] = 'This person already has an account. Use "Invite someone" above instead, so they can accept joining your school.';
         }
+        if (!$errors && $this->tooMany('member-add|' . $school->id, self::INVITES_PER_HOUR)) {
+            $errors['add_email'] = 'Your school has added many people in the last hour. Please try again later.';
+        }
         if ($errors) {
             http_response_code(422);
             $this->index($errors, $in);
@@ -113,6 +127,12 @@ final class MemberController extends Controller
             . " with the email {$in['add_email']} and the temporary password you chose. Give them the password in person or by phone; "
             . 'they will be asked to choose their own at the first sign-in.');
         $this->redirect('members');
+    }
+
+    /** Count one use of a limited action and say whether the hourly limit is now passed. */
+    private function tooMany(string $key, int $perHour): bool
+    {
+        return (new RateLimiter($this->app->db(), $perHour, 60))->hit($key);
     }
 
     /** A readable random password such as "kq7m-3vtr-p9xa" (no 0/o or 1/l), for the add form. */
